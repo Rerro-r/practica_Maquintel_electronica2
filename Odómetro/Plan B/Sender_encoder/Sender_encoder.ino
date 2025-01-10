@@ -197,6 +197,9 @@ void loop() {
 //  if (stopSending == false) {
       // Enviar datos por LoRa
   if (currentMillis - lastLoRaSend >= 30) {
+    //if (currentMillis - lastLoRaSend != 61) {
+     // Serial.println(currentMillis - lastLoRaSend);
+   //// }
     sendLoRaPacket();
     lastLoRaSend = currentMillis;
   //  }

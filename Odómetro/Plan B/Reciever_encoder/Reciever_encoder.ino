@@ -152,12 +152,13 @@ void loop() {
 
 // Manejo de datos del LoRa
 void handleLoRaData(int packetSize) {
+  memset(receivedData, 0, sizeof(receivedData));
   if (packetSize <= sizeof(receivedData)) { // Si el paquete tiene 7 bytes o menos
     int i = 0;
     while (LoRa.available()) {
       receivedData[i++] = LoRa.read();
     }
-    receivedData[i] = '\0'; // Terminar la cadena
+   // receivedData[i] = '\0'; // Terminar la cadena
   } else { // Si el paquete tiene más de 7 bytes
     // Descartar los primeros bytes
     for (int i = 0; i < packetSize - sizeof(receivedData); i++) {
@@ -166,7 +167,7 @@ void handleLoRaData(int packetSize) {
 
     // Leer los últimos 7 bytes
     LoRa.readBytes(receivedData, sizeof(receivedData));
-    receivedData[sizeof(receivedData)] = '\0'; // Asegurar terminación nula
+  //  receivedData[sizeof(receivedData)] = '\0'; // Asegurar terminación nula
   }
 
   int indexQuestion = receivedData[0];  // Determinar tipo de pregunta
@@ -219,8 +220,6 @@ void handleLoRaData(int packetSize) {
 
     LoRa.endPacket();
   }
-  // Limpiar el buffer recibido
-  memset(receivedData, 0, sizeof(receivedData));
 }
 
 // Manejo de datos del Serial
