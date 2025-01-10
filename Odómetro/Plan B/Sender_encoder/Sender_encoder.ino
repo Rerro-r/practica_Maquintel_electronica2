@@ -196,10 +196,11 @@ void loop() {
 
 //  if (stopSending == false) {
       // Enviar datos por LoRa
-  //  if (canSendLoRaPacket(currentMillis)) {
-  sendLoRaPacket();
+  if (currentMillis - lastLoRaSend >= 30) {
+    sendLoRaPacket();
+    lastLoRaSend = currentMillis;
   //  }
- // }
+  }
 }
  /* if (shouldUpdateCommand) {
     askCommand();
@@ -286,11 +287,16 @@ void askCommand() {
 void sendLoRaPacket() {
   //if (transmissionFinished) {
    // transmissionFinished = false;
+    //Serial.println(_LeftEncoderTicks);
     uint8_t buffer[7]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks y 2 bytes para batteryLevel
 
     // Construir el paquete en el buffer
     buffer[0] = 2; memcpy(buffer + 1, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks)); memcpy(buffer + 5, &batteryLevel, sizeof(batteryLevel));
+    long leftEncoderTicks;
 
+        // Extraer leftEncoderTicks (4 bytes)
+    memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
+    Serial.println(leftEncoderTicks);
     LoRa.beginPacket();
 
     // Enviar un identificador o encabezado (opcional)
@@ -299,9 +305,9 @@ void sendLoRaPacket() {
     LoRa.endPacket();
 
     // Calcular el tiempo de envío
-    unsigned long time = millis();
-    Serial.println(time - lastLoRaSend);
-    lastLoRaSend = millis();
+    //unsigned long time = millis();
+    //Serial.println(time - lastLoRaSend);
+    //lastLoRaSend = millis();
 //  }
 }
 

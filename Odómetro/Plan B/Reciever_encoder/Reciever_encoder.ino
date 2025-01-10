@@ -21,9 +21,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 unsigned long previousMillis = 0;  // Tiempo entre paquetes
 unsigned long lastOledUpdate = 0;  // Control de actualización OLED
-unsigned long lastPrintMillis = 0;  // Control de impresión en Serial Monitor
+//unsigned long lastPrintMillis = 0;  // Control de impresión en Serial Monitor
 
-char receivedData[10] = {0};  // Buffer para datos del paquete
+char receivedData[7] = {0};  // Buffer para datos del paquete
 int batteryLevel = 0;
 long leftEncoderTicks = 0;
 float distanciaRecorrida = 0.0;
@@ -130,34 +130,39 @@ void loop() {
   // Revisar datos del puerto LoRa
   int packetSize = LoRa.parsePacket();
   if (packetSize) {
-    handleLoRaData();
+    handleLoRaData(packetSize);
   }
 
   // Revisar datos del puerto Serial
   if (Serial.available() > 0) {
     handleSerialData();
   }
-
+}
   // Actualizar la pantalla OLED cada segundo
-  if (currentMillis - lastOledUpdate >= 1000) {
-    updateOLED();
-    lastOledUpdate = currentMillis;
-  }
+ // if (currentMillis - lastOledUpdate >= 1000) {
+  //  updateOLED();
+    //lastOledUpdate = currentMillis;
+  //}
 
   // Actualizar mensajes periódicos, si aplica
-  if (currentMillis - lastPrintMillis >= 1000) {
-    lastPrintMillis = currentMillis;
-  }
-}
+ // if (currentMillis - lastPrintMillis >= 1000) {
+    //lastPrintMillis = currentMillis;
+  //}
+//}
 
 // Manejo de datos del LoRa
-void handleLoRaData() {
+void handleLoRaData(int packetSize) {
   int i = 0;
+  int bytesToRead = min(packetSize, (int)sizeof(receivedData) - 1); // Calcula el número de bytes a leer
 
-  while (LoRa.available() && i < sizeof(receivedData) - 1) {
+  while (LoRa.available() && i < 7 && i < bytesToRead) { // Lee hasta el byte 7 o bytesToRead, lo que sea menor
     receivedData[i++] = LoRa.read();
   }
   receivedData[i] = '\0';  // Terminar la cadena con '\0'
+
+  while (LoRa.available()) {
+    LoRa.read(); // Leer y descartar
+  }
 
   int indexQuestion = receivedData[0];  // Determinar tipo de pregunta
 
@@ -232,7 +237,7 @@ void handleSerialData() {
 }
 
 
-
+/*
 // Actualización del OLED
 void updateOLED() {
   char buffer[20]; // Buffer para almacenar la cadena formateada (tamaño suficiente para un long)
@@ -264,3 +269,4 @@ void updateOLED() {
 
   display.display();
 }
+*/
