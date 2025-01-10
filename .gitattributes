@@ -1,0 +1,7 @@
+*.csv filter=lfs diff=lfs merge=lfs -text
+Odómetro/Plan/ filter=lfs diff=lfs merge=lfs -text
+B/Codigo/ filter=lfs diff=lfs merge=lfs -text
+Odometria/Código/ filter=lfs diff=lfs merge=lfs -text
+separado/CSVs/ filter=lfs diff=lfs merge=lfs -text
+de/ filter=lfs diff=lfs merge=lfs -text
+prueba/12.54.24.310799.csv filter=lfs diff=lfs merge=lfs -text
