@@ -151,77 +151,110 @@ void loop() {
 //}
 
 // Manejo de datos del LoRa
-void handleLoRaData(int packetSize) {
-  memset(receivedData, 0, sizeof(receivedData));
-  if (packetSize <= sizeof(receivedData)) { // Si el paquete tiene 7 bytes o menos
-    int i = 0;
-    while (LoRa.available()) {
-      receivedData[i++] = LoRa.read();
-    }
-   // receivedData[i] = '\0'; // Terminar la cadena
-  } else { // Si el paquete tiene más de 7 bytes
-    // Descartar los primeros bytes
-    for (int i = 0; i < packetSize - sizeof(receivedData); i++) {
-      LoRa.read(); // Leer y descartar
-    }
+void loop() {
+  unsigned long currentMillis = millis();
 
-    // Leer los últimos 7 bytes
-    LoRa.readBytes(receivedData, sizeof(receivedData));
-  //  receivedData[sizeof(receivedData)] = '\0'; // Asegurar terminación nula
+  int packetSize = LoRa.parsePacket();
+  if (packetSize) {
+    handleLoRaData(packetSize);
   }
 
-  int indexQuestion = receivedData[0];  // Determinar tipo de pregunta
-
-  if (indexQuestion == 1) {
-    // Enviar configuración del encoder en binario por LoRa
-    int bufferSize = 1 + runCommand.length() + 1 + sizeof(encoderRatio);
-    uint8_t buffer[bufferSize]; // Buffer de tamaño variable
-
-    // Construir el paquete en el buffer
-    buffer[0] = 1; // Confirmación de recepción (como uint8_t)
-    memcpy(buffer + 1, runCommand.c_str(), runCommand.length()); // Copia el string
-    buffer[1 + runCommand.length()] = (uint8_t)encoderType; // Copia el tipo de encoder
-    memcpy(buffer + 2 + runCommand.length(), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
-
-    LoRa.beginPacket();
-
-    // Enviar el buffer completo
-    LoRa.write(buffer, bufferSize);
-
-    LoRa.endPacket();
-  } else if (indexQuestion == 2) {
-    // Procesar datos binarios del paquete recibido
-    int offset = 1; // Comenzar después del índice de pregunta
-
-    // Leer leftEncoderTicks (4 bytes - tipo `long`)
-   // long leftEncoderTicks;
-    memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
-    offset += sizeof(leftEncoderTicks);
-
-    // Leer batteryLevel (1 byte - tipo `int`)
-    batteryLevel = (int)receivedData[offset];
-    offset += sizeof(uint8_t);
-
-    // Imprimir los datos recibidos
-    Serial.println(leftEncoderTicks);
-  } else if (indexQuestion == 3){
-     // Responder al comando recibido
-    int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string
-    uint8_t buffer[bufferSize]; // Buffer de tamaño variable
-
-    // Construir el paquete en el buffer
-    buffer[0] = 3; // Confirmación de recepción (como uint8_t)
-    memcpy(buffer + 1, runCommand.c_str(), runCommand.length()); // Copia el string
-
-    LoRa.beginPacket();
-
-    // Enviar el buffer completo
-    LoRa.write(buffer, bufferSize);
-
-    LoRa.endPacket();
+  if (Serial.available() > 0) {
+    handleSerialData();
   }
 }
 
+void handleLoRaData(int packetSize) {
+  uint8_t receivedBytes[20]; // Increased buffer size to handle hex representation
+  int receivedBytesCount = 0;
+
+  if (packetSize) {
+    if (packetSize <= sizeof(receivedBytes)) {
+      receivedBytesCount = LoRa.readBytes(receivedBytes, packetSize);
+    }
+    else {
+      for (int i = 0; i < packetSize; i++) {
+         LoRa.read();
+      }
+    }
+  }
+
+  String hexString = bytesToHexString(receivedBytes, receivedBytesCount);
+  Serial.print("Received Hex: ");
+  Serial.println(hexString);
+
+  if (hexString.length() > 0) {
+    uint8_t dataBytes[10]; // Adjust size as needed
+    int dataLength = hexStringToBytes(hexString, dataBytes);
+
+    if (dataLength > 0) {
+      int indexQuestion = dataBytes[0];
+
+      if (indexQuestion == 1) {
+        // ... (Handling of indexQuestion 1 remains similar, but using dataBytes)
+        int bufferSize = 1 + runCommand.length() + 1 + sizeof(encoderRatio);
+        uint8_t buffer[bufferSize];
+
+        buffer[0] = 1;
+        memcpy(buffer + 1, runCommand.c_str(), runCommand.length());
+        buffer[1 + runCommand.length()] = (uint8_t)encoderType;
+        memcpy(buffer + 2 + runCommand.length(), &encoderRatio, sizeof(encoderRatio));
+
+        String hexToSend = bytesToHexString(buffer, bufferSize);
+        Serial.print("Sending Hex: ");
+        Serial.println(hexToSend);
+
+        int hexLen = hexToSend.length();
+        if (hexLen % 2 != 0) {
+          Serial.println("Error: Odd length hex string");
+        }
+        else {
+          int numBytes = hexLen / 2;
+          uint8_t bytesToSend[numBytes];
+          hexStringToBytes(hexToSend, bytesToSend);
+          LoRa.beginPacket();
+          LoRa.write(bytesToSend, numBytes);
+          LoRa.endPacket();
+        }
+      }
+      else if (indexQuestion == 2) {
+        int offset = 1;
+        memcpy(&leftEncoderTicks, &dataBytes[offset], sizeof(leftEncoderTicks));
+        offset += sizeof(leftEncoderTicks);
+        batteryLevel = (int)dataBytes[offset];
+        offset += sizeof(uint8_t);
+        Serial.print("leftEncoderTicks: ");
+        Serial.println(leftEncoderTicks);
+        Serial.print("batteryLevel: ");
+        Serial.println(batteryLevel);
+      }
+      else if (indexQuestion == 3){
+        int bufferSize = 1 + runCommand.length();
+        uint8_t buffer[bufferSize];
+
+        buffer[0] = 3;
+        memcpy(buffer + 1, runCommand.c_str(), runCommand.length());
+
+        String hexToSend = bytesToHexString(buffer, bufferSize);
+        Serial.print("Sending Hex: ");
+        Serial.println(hexToSend);
+
+        int hexLen = hexToSend.length();
+        if (hexLen % 2 != 0) {
+          Serial.println("Error: Odd length hex string");
+        }
+        else {
+          int numBytes = hexLen / 2;
+          uint8_t bytesToSend[numBytes];
+          hexStringToBytes(hexToSend, bytesToSend);
+          LoRa.beginPacket();
+          LoRa.write(bytesToSend, numBytes);
+          LoRa.endPacket();
+        }
+      }
+    }
+  }
+}
 // Manejo de datos del Serial
 void handleSerialData() {
   String data = Serial.readString();
@@ -274,3 +307,28 @@ void updateOLED() {
   display.display();
 }
 */
+
+String bytesToHexString(const uint8_t* bytes, int len) {
+  String hexString = "";
+  for (int i = 0; i < len; i++) {
+    char hexByte[3];
+    sprintf(hexByte, "%02X", bytes[i]); // Convert byte to 2-digit hex string
+    hexString += hexByte;
+  }
+  return hexString;
+}
+
+// Function to convert hex string to byte array
+int hexStringToBytes(const String& hexString, uint8_t* bytes) {
+  int len = hexString.length();
+  if (len % 2 != 0) {
+    return -1; // Invalid hex string length
+  }
+  for (int i = 0; i < len; i += 2) {
+    String byteStr = hexString.substring(i, i + 2);
+    char byteChars[3];
+    byteStr.toCharArray(byteChars, 3);
+    bytes[i / 2] = strtol(byteChars, NULL, 16);
+  }
+  return len / 2;
+}

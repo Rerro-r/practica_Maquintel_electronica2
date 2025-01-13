@@ -5,6 +5,8 @@ import serial
 import time
 import tkinter as tk
 from tkinter import ttk
+import threading
+import queue
 
 Estado = 0
 Estado_reset = 0
@@ -144,59 +146,66 @@ def conexion():
 
         Estado = 0
 
-    Ti = ""
-    pitch = "+00.0"
-    roll = "+000.0"
-    Distancia = "000.01"
-    acelerometro = [0, 0, 0, 0, 0, 0]
-    magnetometro = [0, 0, 0, 0, 0, 0]
-    giroscopio = [0, 0, 0, 0, 0, 0]
-    
-    while Estado == 1:
-        time.sleep(0.03)  # tiempo de muestro
-        ace = " "
-        giro = " "
-        mag = " "
-        Ti = ""
-        salto_de_linea = 0
-        imu = ""   
-        if selec_imu.get() == 1:
-            while salto_de_linea < 3: 
-                if puertoSerial.in_waiting > 0:
-                    lectura = puertoSerial.readline()
-                    if len(lectura) > 5:
-                        imu = imu + lectura.decode('cp1252')
-                        salto_de_linea = salto_de_linea + 1
-                        time.sleep(0.002)  # tiempo de muestro
-            puertoSerial.write("OK".encode('utf-8'))
-            
-            if imu != "":
-                lista_IMU = imu.split('\n') 
-                
-                if len(lista_IMU) >= 3:
-                    # se separan los datos por cada sensor segun lo indicado por el indice de la trama
-                    for i in lista_IMU:
-                        if len(i) > 6:
-                            A = i.split(",")
-                            if len(A) >= 6:
-                                if A[1] == "0":
-                                    giroscopio = i.split(",")
-                                elif A[1] == "1":
-                                    acelerometro = i.split(",") 
-                                elif A[1] == "2":
-                                    magnetometro = i.split(",")
-                    
-                    ace = str(acelerometro[1]) + ";" + str(acelerometro[3]) + ";" + str(acelerometro[4]) + ";" + str(acelerometro[5])
-                    giro = str(giroscopio[1]) + ";" + str(giroscopio[3]) + ";" + str(giroscopio[4]) + ";" + str(giroscopio[5])
-                    mag = str(magnetometro[1]) + ";" + str(magnetometro[3]) + ";" + str(magnetometro[4]) + ";" + str(magnetometro[5]) 
+    data_queue = queue.Queue()
 
-        if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
-            try:
-                Tics = puertoSerial_c.readline()
-              #  print(f"Tics desde serial: {Tics}")
-                if len(Tics) > 0:
+    def data_processing_loop():
+        global Estado, Ticks, ti_ant, Estado_reset
+        Ti = ""
+        pitch = "+00.0"
+        roll = "+000.0"
+        Distancia = "000.01"
+        acelerometro = [0, 0, 0, 0, 0, 0]
+        magnetometro = [0, 0, 0, 0, 0, 0]
+        giroscopio = [0, 0, 0, 0, 0, 0]
+        nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{datetime.datetime.now().strftime('%H.%M.%S.%f')}.csv")
+
+        with open(nombre_archivo, "w", newline="") as file:
+            writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+            writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
+        
+        while Estado == 1:
+            start_time = time.perf_counter() #Para control de tiempo del ciclo
+
+            ace = " "
+            giro = " "
+            mag = " "
+            Ti = ""
+            salto_de_linea = 0
+            imu = ""  
+            if selec_imu.get() == 1:
+                while salto_de_linea < 3: 
+                    if puertoSerial.in_waiting > 0:
+                        lectura = puertoSerial.readline()
+                        if len(lectura) > 5:
+                            imu = imu + lectura.decode('cp1252')
+                            salto_de_linea = salto_de_linea + 1
+                            time.sleep(0.002) 
+                puertoSerial.write("OK".encode('utf-8'))
+                
+                if imu != "":
+                    lista_IMU = imu.split('\n') 
+                    
+                    if len(lista_IMU) >= 3:
+                        for i in lista_IMU:
+                            if len(i) > 6:
+                                A = i.split(",")
+                                if len(A) >= 6:
+                                    if A[1] == "0":
+                                        giroscopio = i.split(",")
+                                    elif A[1] == "1":
+                                        acelerometro = i.split(",") 
+                                    elif A[1] == "2":
+                                        magnetometro = i.split(",")
+                        
+                        ace = str(acelerometro[1]) + ";" + str(acelerometro[3]) + ";" + str(acelerometro[4]) + ";" + str(acelerometro[5])
+                        giro = str(giroscopio[1]) + ";" + str(giroscopio[3]) + ";" + str(giroscopio[4]) + ";" + str(giroscopio[5])
+                        mag = str(magnetometro[1]) + ";" + str(magnetometro[3]) + ";" + str(magnetometro[4]) + ";" + str(magnetometro[5]) 
+
+            if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
+                try:
+                    Tics = puertoSerial_c.readline()
+                    if len(Tics) > 0:
                         Ti = "".join(filter(lambda x: x.isdigit() or x in ['-', '+'], str(Tics)))
-                      #  print(f"Ti: {Ti}")
                         if Ti == "":
                             Ti_int = 0
                         else:
@@ -211,76 +220,88 @@ def conexion():
                             Distancia = round((((Ticks * 0.0225 * 3.1416) / 1024) * 1.0216), 2)
                         elif odometro_lista.get() == "Personalizado":
                             Distancia = round((((Ticks * float(input_ratio.get()) * 3.1416) / 1024) * 1), 2)
-                        #print(f"post cálculo float: {Distancia}")
+
                         string_DIstancia=str(Distancia).split(".")
-                       # print(f"post cálculo: {string_DIstancia}")
 
                         if len(string_DIstancia[1])<2:
                             string_DIstancia[1]= string_DIstancia[1]+"0"
                         Distancia=string_DIstancia[0]+"."+string_DIstancia[1]
-                       # print(f"post ajuste por largo: {Distancia}")
 
-                        # Ajuste de formato de distancia
                         if float(Distancia) >= 0:
-                            if len(str(Distancia)) == 4:
-                                Distancia = "+000" + str(Distancia)
-                            if len(str(Distancia)) == 5:
-                                Distancia = "+00" + str(Distancia)
-                            if len(str(Distancia)) == 6:
-                                Distancia = "+0" + str(Distancia)
-                            if len(str(Distancia)) == 7:
-                                Distancia = "+" + str(Distancia)
+                            Distancia = "+" + "0"*(7-len(str(Distancia))) + str(Distancia)
                         else:
-                            if len(str(Distancia)) == 4:
-                                Distancia = "-0000" + str(Distancia[1:])
-                            if len(str(Distancia)) == 5:
-                                Distancia = "-000" + str(Distancia[1:])
-                            if len(str(Distancia)) == 6:
-                                Distancia = "-00" + str(Distancia[1:])
-                            if len(str(Distancia)) == 7:
-                                Distancia = "-0" + str(Distancia[1:])
-                        
-                      #  print(f"Distancia final: {Distancia}")
+                            Distancia = "-" + "0"*(6-len(str(Distancia[1:]))) + str(Distancia[1:])
+                    data_queue.put(Distancia)
+                except UnicodeDecodeError:
+                    print("Error de decodificación, ignorando los datos corruptos.")
+                    continue
+            # Actualiza la variable de Tkinter
+            formato = f"$PITCH{pitch},ROLL{roll},DIST{Distancia}\r\n"
+            
+            with open(nombre_archivo, 'a', newline='') as archivo:
+                escritor = csv.writer(archivo, delimiter=';', quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+                hora_actual_unix = datetime.datetime.now().timestamp()
+                hora_actual_local = datetime.datetime.now()
+                escritor.writerow([hora_actual_unix, hora_actual_local, Distancia, Ticks, giro, ace, mag])
+            
+            if selec_imu.get() == 1:
+                puertoSerial_b.write(formato.encode('utf-8'))
+            
+            if Estado_reset == 1:
+                try:
+                    nueva_dis = "reset" + input_reset.get() + "@"
+                    puertoSerial_c.write(nueva_dis.encode('utf-8'))
+                    Estado_reset = 0
+                except ValueError:
+                    pass
 
-            except UnicodeDecodeError:
-                print("Error de decodificación, ignorando los datos corruptos.")
-                continue 
-        
-        dis.set(Distancia)
-        
-              
-    
-        formato = f"$PITCH{pitch},ROLL{roll},DIST{Distancia}\r\n"
-        
-        # Guardar datos en archivo CSV
-        with open(nombre_archivo, 'a', newline='') as archivo:
-            escritor = csv.writer(archivo, delimiter=';', quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
-            hora_actual_unix = datetime.datetime.now().timestamp()
-            hora_actual_local = datetime.datetime.now()
-            escritor.writerow([hora_actual_unix, hora_actual_local, Distancia, Ticks, giro, ace, mag])
-        
-        if selec_imu.get() == 1:
-            puertoSerial_b.write(formato.encode('utf-8'))
-        dis.set(Distancia)
-        
-        # Verificar si se necesita resetear la distancia
-        if Estado_reset == 1:
+            elapsed_time = time.perf_counter() - start_time
+            sleep_time = max(0, 1/31 - elapsed_time) #Calcula el tiempo que debe dormir para mantener los 31hz
+            time.sleep(sleep_time) #Duerme el tiempo calculado
+            
+
+    def update_gui(): #Función para actualizar la GUI
+        while True:
             try:
-                nueva_dis = "reset" + input_reset.get() + "@"
-                puertoSerial_c.write(nueva_dis.encode('utf-8'))
-                Estado_reset = 0
-            except ValueError:
-                pass
+                Distancia = data_queue.get_nowait() #Intenta obtener datos de la cola sin bloquear
+                dis.set(Distancia) #Actualiza la interfaz
+                ventana.update()
+            except queue.Empty: #Si la cola está vacía, espera un poco
+                time.sleep(0.01) #Espera 10ms
+            except tk.TclError: #Excepción para cuando se cierra la ventana
+                break
 
-        ventana.update()
+    # Iniciar el bucle de procesamiento en un hilo separado
+    data_thread = threading.Thread(target=data_processing_loop)
+    data_thread.daemon = True #Para que el hilo se cierre cuando se cierra la ventana
+    data_thread.start()
 
-    if selec_imu == 1:
+    gui_thread = threading.Thread(target=update_gui)
+    gui_thread.daemon = True
+    gui_thread.start()
+
+  #  if selec_imu == 1:
+   #     puertoSerial.flushInput()
+    #    puertoSerial.close()
+     #   puertoSerial_b.close()
+    #if port_lista.get() and odometro_lista.get():
+     #   puertoSerial_c.flushInput()
+      #  puertoSerial_c.close()
+
+def on_closing():
+    global Estado, puertoSerial_c, puertoSerial, puertoSerial_b
+    Estado = 0
+    time.sleep(0.1)  # Dar tiempo a los hilos a terminar
+    if puertoSerial_c:
+        puertoSerial_c.flushInput() #Vaciar el buffer antes de cerrar
+        puertoSerial_c.close()
+    if puertoSerial:
         puertoSerial.flushInput()
         puertoSerial.close()
+    if puertoSerial_b:
+        puertoSerial_b.flushInput()
         puertoSerial_b.close()
-    if port_lista.get() and odometro_lista.get():
-        puertoSerial_c.flushInput()
-        puertoSerial_c.close()
+    ventana.destroy()
 
 def limpiar_error(event):
     mensaje_error.config(text="")  # Borra el mensaje de error cuando el usuario interactúa con un campo de entrada
@@ -368,4 +389,5 @@ port_lista.bind("<Button-1>", actualizar_puertos)
 port_imu.bind("<Button-1>", actualizar_puertos)
 
 # Iniciar actualización de puertos
+ventana.protocol("WM_DELETE_WINDOW", on_closing)
 ventana.mainloop()
