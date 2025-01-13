@@ -22,6 +22,7 @@ puertoSerial_b = None
 constante = None
 data_queue = None
 data_thread = None
+Distancia_str = "+000000.0"
 
 CONSTANTES_ODOMETRO = {
     "Guia de cable": 0.0372 * 3.1416 / 1024,
@@ -108,7 +109,7 @@ def desconectar():
         print("Hilo de procesamiento detenido.")
 
 def reset():
-    global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante
+    global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante, Distancia_str
     mensaje_error.config(text="")
     if Estado == 1:
         try:
@@ -116,6 +117,7 @@ def reset():
             begin_reset = float(input_reset.get())  # Si es válido, se guarda en begin_reset
             Estado_reset = 1  # Si la conversión es exitosa, se activa el reset
             Ticks = round(begin_reset / constante)
+            Distancia_str = f"{begin_reset:+08.2f}"
         except ValueError:
             # Si ocurre un error al intentar convertir a float, muestra un mensaje de error
             mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
@@ -222,7 +224,7 @@ def conexion():
       #  puertoSerial_c.close()
 
 def data_processing_loop():
-    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue
+    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue, Distancia_str
     Ti = ""
     tiempo_anterior_escritura = time.perf_counter()
     tiempos_de_ciclo = []
@@ -231,7 +233,6 @@ def data_processing_loop():
     ticks_anteriores = None
     pitch = "+00.0"
     roll = "+000.0"
-    Distancia_str = "+000000.0"
     nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{datetime.datetime.now().strftime('%H.%M.%S.%f')}.csv")
 
     with open(nombre_archivo, "w", newline="") as file:
@@ -262,7 +263,7 @@ def data_processing_loop():
 
                 # Decodificación y conversión a entero directamente:
                 try:
-                    Ti_int = int(Tics_bytes.decode().strip()) #Decodifica, quita espacios y convierte a entero
+                    Ti_int = -1 * int(Tics_bytes.decode().strip()) #Decodifica, quita espacios y convierte a entero
                 except ValueError: #Manejo de error si no se puede convertir a entero
                     print(f"Error al convertir a entero: {Tics_bytes}")
                     continue #Continua a la siguiente iteracion
