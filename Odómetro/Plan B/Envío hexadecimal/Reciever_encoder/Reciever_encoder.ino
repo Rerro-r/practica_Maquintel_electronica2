@@ -150,19 +150,6 @@ void loop() {
   //}
 //}
 
-// Manejo de datos del LoRa
-void loop() {
-  unsigned long currentMillis = millis();
-
-  int packetSize = LoRa.parsePacket();
-  if (packetSize) {
-    handleLoRaData(packetSize);
-  }
-
-  if (Serial.available() > 0) {
-    handleSerialData();
-  }
-}
 
 void handleLoRaData(int packetSize) {
   uint8_t receivedBytes[20]; // Increased buffer size to handle hex representation
@@ -201,8 +188,8 @@ void handleLoRaData(int packetSize) {
         memcpy(buffer + 2 + runCommand.length(), &encoderRatio, sizeof(encoderRatio));
 
         String hexToSend = bytesToHexString(buffer, bufferSize);
-        Serial.print("Sending Hex: ");
-        Serial.println(hexToSend);
+        //Serial.print("Sending Hex: ");
+        //Serial.println(hexToSend);
 
         int hexLen = hexToSend.length();
         if (hexLen % 2 != 0) {
@@ -223,10 +210,8 @@ void handleLoRaData(int packetSize) {
         offset += sizeof(leftEncoderTicks);
         batteryLevel = (int)dataBytes[offset];
         offset += sizeof(uint8_t);
-        Serial.print("leftEncoderTicks: ");
-        Serial.println(leftEncoderTicks);
-        Serial.print("batteryLevel: ");
-        Serial.println(batteryLevel);
+        Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+
       }
       else if (indexQuestion == 3){
         int bufferSize = 1 + runCommand.length();
@@ -236,8 +221,8 @@ void handleLoRaData(int packetSize) {
         memcpy(buffer + 1, runCommand.c_str(), runCommand.length());
 
         String hexToSend = bytesToHexString(buffer, bufferSize);
-        Serial.print("Sending Hex: ");
-        Serial.println(hexToSend);
+        //Serial.print("Sending Hex: ");
+        //Serial.println(hexToSend);
 
         int hexLen = hexToSend.length();
         if (hexLen % 2 != 0) {
