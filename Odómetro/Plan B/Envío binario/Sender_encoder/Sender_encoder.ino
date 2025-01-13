@@ -189,7 +189,7 @@ void loop() {
   }
 
   // Actualizar el nivel de batería cada 60 segundos
-  if (currentMillis - lastBatteryUpdate >= 120000) {
+  if (currentMillis - lastBatteryUpdate >= 10000) {
     batteryLevel = getBatteryLevel();
     lastBatteryUpdate = currentMillis;
   }
@@ -198,7 +198,7 @@ void loop() {
       // Enviar datos por LoRa
   if (currentMillis - lastLoRaSend >= 30) {
     //if (currentMillis - lastLoRaSend != 61) {
-     // Serial.println(currentMillis - lastLoRaSend);
+    //Serial.println(currentMillis - lastLoRaSend);
    //// }
     sendLoRaPacket();
     lastLoRaSend = currentMillis;
@@ -240,15 +240,27 @@ bool shouldStopSending(unsigned long currentMillis) {
 // Actualiza la pantalla OLED
 void updateOLED() {
   //lastDisplayUpdate = millis();
-  char displayBuffer[50]; // Ajusta el tamaño si necesitas más espacio
-  snprintf(displayBuffer, sizeof(displayBuffer), "Bat: %d\nT: %ld", batteryLevel, _LeftEncoderTicks);
+  if (batteryLevel > 10){
+    char displayBuffer[50]; // Ajusta el tamaño si necesitas más espacio
+    snprintf(displayBuffer, sizeof(displayBuffer), "Bat: %d\nT: %ld", batteryLevel, _LeftEncoderTicks);
 
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 8); // Ajusta la posición vertical si es necesario
-  display.print(displayBuffer); // Imprime la cadena formateada
-  display.display();
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 8); // Ajusta la posición vertical si es necesario
+    display.print(displayBuffer); // Imprime la cadena formateada
+    display.display();
+  } else {
+    char displayBuffer[50]; // Ajusta el tamaño si necesitas más espacio
+    snprintf(displayBuffer, sizeof(displayBuffer), "Bateria baja! %d\nT: %ld", batteryLevel, _LeftEncoderTicks);
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 8); // Ajusta la posición vertical si es necesario
+    display.print(displayBuffer); // Imprime la cadena formateada
+    display.display();
+  }
 }
 
 // Verifica si es momento de actualizar el nivel de batería
@@ -299,7 +311,7 @@ void sendLoRaPacket() {
 
         // Extraer leftEncoderTicks (4 bytes)
     memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
-    Serial.println(leftEncoderTicks);
+    //Serial.println(leftEncoderTicks);
     LoRa.beginPacket();
 
     // Enviar un identificador o encabezado (opcional)
@@ -340,7 +352,7 @@ void readCommand() {
 int getBatteryLevel() {
   float voltage = (analogRead(batteryPin) / adcResolution) * referenceVoltage / voltageDividerRatio;
   int percentage = map(voltage * 100, 330, 800, 0, 100);
-  return (percentage <= 10) ? -1 : constrain(percentage, 0, 100);
+  return constrain(percentage, 0, 100);
 }
 
 void HandleLeftMotorInterruptA() {

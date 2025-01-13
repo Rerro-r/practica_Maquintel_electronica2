@@ -203,7 +203,9 @@ void handleLoRaData(int packetSize) {
     offset += sizeof(uint8_t);
 
     // Imprimir los datos recibidos
-    Serial.println(leftEncoderTicks);
+    // Imprimir los datos recibidos en una sola línea con un único Serial.println()
+    Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+
   } else if (indexQuestion == 3){
      // Responder al comando recibido
     int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string

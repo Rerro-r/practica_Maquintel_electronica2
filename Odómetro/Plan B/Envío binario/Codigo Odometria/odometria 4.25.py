@@ -22,6 +22,8 @@ puertoSerial_b = None
 constante = None
 data_queue = None
 data_thread = None
+data2_queue = None
+Bat_str = "00"
 Distancia_str = "+000000.0"
 
 CONSTANTES_ODOMETRO = {
@@ -224,12 +226,14 @@ def conexion():
       #  puertoSerial_c.close()
 
 def data_processing_loop():
-    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue, Distancia_str
+    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue, Distancia_str, Bat_str, data2_queue
     Ti = ""
     tiempo_anterior_escritura = time.perf_counter()
     tiempos_de_ciclo = []
     data_queue = queue.Queue()
+    data2_queue = queue.Queue()
     distancia_anterior = None
+    bat_int_anterior = None
     ticks_anteriores = None
     pitch = "+00.0"
     roll = "+000.0"
@@ -263,7 +267,9 @@ def data_processing_loop():
 
                 # Decodificación y conversión a entero directamente:
                 try:
-                    Ti_int = -1 * int(Tics_bytes.decode().strip()) #Decodifica, quita espacios y convierte a entero
+                    data = Tics_bytes.decode().strip()
+                    Ti_int, Bat_int = map(int, data.split(','))
+                    Ti_int = -1 * Ti_int #Decodifica, quita espacios y convierte a entero
                 except ValueError: #Manejo de error si no se puede convertir a entero
                     print(f"Error al convertir a entero: {Tics_bytes}")
                     continue #Continua a la siguiente iteracion
@@ -277,9 +283,20 @@ def data_processing_loop():
                         Distancia_str = f"{Distancia:+08.2f}"
                         distancia_anterior = Distancia #Actualizar la distancia anterior
                         ticks_anteriores = Ti_int #Actualizar los ticks anteriores
-                        data_queue.put(Distancia_str) #Solo guardar en la cola si la distancia cambio                  
+                        data_queue.put(Distancia_str) 
+                    if Bat_int <= 10:
+                        mensaje_error.config(text="Advertencia: Queda poca batería")
+
+                    if Bat_int != bat_int_anterior:
+                        Bat_str = f"{Bat_int}"
+                        bat_int_anterior = Bat_int
+                        data2_queue.put(Bat_str)
+                  
                 else:
                     Distancia_str = f"{distancia_anterior:+08.2f}"
+                    Bat_str = f"{bat_int_anterior}"
+                
+                    
 
             except UnicodeDecodeError:
                 print("Error de decodificación, ignorando los datos corruptos.")
@@ -303,23 +320,29 @@ def data_processing_loop():
         tiempos_de_ciclo.append(elapsed_time)
         target_time = 1/31
 
-        if elapsed_time > target_time:
-            print(f"No se cumple el tiempo objetivo. Tiempo transcurrido: {elapsed_time:.6f}") #Imprime tiempo transcurrido
+       # if elapsed_time > target_time:
+        #    pass
+          #  print(f"No se cumple el tiempo objetivo. Tiempo transcurrido: {elapsed_time:.6f}") #Imprime tiempo transcurrido
 
         if tiempos_de_ciclo:
             promedio = sum(tiempos_de_ciclo) / len(tiempos_de_ciclo)
             maximo = max(tiempos_de_ciclo)
             minimo = min(tiempos_de_ciclo)
-            print(f"Tiempos de ciclo: Promedio: {promedio:.6f}, Maximo: {maximo:.6f}, Minimo: {minimo:.6f}")
+          ##  print(f"Tiempos de ciclo: Promedio: {promedio:.6f}, Maximo: {maximo:.6f}, Minimo: {minimo:.6f}")
 
 
 def update_gui():
     ventana.after(0, update_gui_inner) #usar after para evitar bucle infinito
 def update_gui_inner():
-    global data_queue
+    global data_queue, data2_queue
     try:
         Distancia = data_queue.get_nowait()
         dis.set(Distancia)
+    except queue.Empty:
+        pass
+    try:
+        Bateria = data2_queue.get_nowait()
+        bat.set(Bateria)
     except queue.Empty:
         pass
     except tk.TclError:
@@ -331,7 +354,7 @@ def on_closing():
     Estado = 0  # Asegura que los hilos terminen
     time.sleep(0.5)  # Da más tiempo a los hilos para que terminen
     if puertoSerial_c:
-        cerrar_puerto(puertoSerial_c, "C")
+        cerrar_puerto(puertoSerial_c, "Receptor Encoder")
     if puertoSerial:
         cerrar_puerto(puertoSerial, "IMU")
     if puertoSerial_b:
@@ -376,7 +399,7 @@ def habilitar_radio(*args):
 # Configuración de la interfaz gráfica
 ventana = tk.Tk()
 ventana.title("Odometria - Maquintel")
-ventana.geometry('800x250')
+ventana.geometry('800x350')
 ventana.configure(background='dark orange')
 
 logo = tk.PhotoImage(file=logo_path)
@@ -391,6 +414,12 @@ etiqueta2 = tk.Label(ventana, text='Distancia: ', bg='white', fg='black')
 etiqueta2.place(x=5, y=159)
 etiqueta3 = tk.Label(ventana, textvariable=dis, bg='white', fg='black', width=9)
 etiqueta3.place(x=80, y=159)
+
+bat = tk.StringVar(value="00")
+etiqueta6 = tk.Label(ventana, text='Batería: ', bg='white', fg='black')
+etiqueta6.place(x=5, y=259)
+etiqueta7 = tk.Label(ventana, textvariable=bat, bg='white', fg='black', width=9)
+etiqueta7.place(x=80, y=259)
 
 port_lista = ttk.Combobox(ventana, width=10, values=puertos_seriales())
 port_lista.place(x=60, y=80)
