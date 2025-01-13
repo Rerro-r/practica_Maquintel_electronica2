@@ -6,10 +6,11 @@ import time
 import tkinter as tk
 from tkinter import ttk
 import threading
+import queue
 
 Estado = 0
 Estado_reset = 0
-envio_encoder = True  # Debe ser True cada vez que se desconecta de forma manual o accidental el receptor
+envio_encoder = False  # Debe ser True cada vez que se desconecta de forma manual o accidental el receptor
 begin_reset = 0
 envio_encoder_listo = False
 Ticks = 0
@@ -18,9 +19,12 @@ ti_ant = 0
 puertoSerial_c = None
 puertoSerial = None
 puertoSerial_b = None
-pitch = "+00.0"
-roll = "+000.0"
-Distancia = "0.00" # Inicializar Distancia
+
+CONSTANTES_ODOMETRO = {
+    "Guia de cable": 0.0372 * 3.1416 / 1024,
+    "Carrete": 0.0225 * 3.1416 * 1.0216 / 1024,
+    "Personalizado": None  # Se calculará dinámicamente
+}
 
 current_file_path = os.path.abspath(__file__)
 current_folder = os.path.dirname(current_file_path)
@@ -46,48 +50,6 @@ def actualizar_puertos(*args):
         if port_lista["values"] != puertos_disponibles:
             port_lista["values"] = puertos_disponibles
             port_imu["values"] = puertos_disponibles
-
-def leer_datos_serial(puerto_serial, tipo_sensor):
-    """Función para leer datos del puerto serial en un hilo separado."""
-    datos = ""
-    print("entré al thread")
-    while Estado == 1:
-        if puerto_serial.in_waiting > 0:
-            try:
-                linea = puerto_serial.readline().decode('cp1252').strip() #Decodificar y quitar espacios
-                if linea: #Verificar que la linea no este vacia
-                    datos += linea + '\n'
-            except UnicodeDecodeError:
-                print(f"Error de decodificación en {tipo_sensor}, ignorando datos corruptos.")
-                continue
-    return datos
-
-def procesar_imu(imu_data):
-    """Procesa los datos del IMU."""
-    acelerometro = [0] * 6
-    magnetometro = [0] * 6
-    giroscopio = [0] * 6
-    if imu_data:
-        lista_IMU = imu_data.split('\n')
-        for i in lista_IMU:
-            if len(i) > 6:
-                A = i.split(",")
-                if len(A) >= 2: #Verificar que al menos tenga el tipo de sensor
-                    try:
-                        tipo_sensor = int(A[1])
-                        if tipo_sensor == 0:
-                            giroscopio = A
-                        elif tipo_sensor == 1:
-                            acelerometro = A
-                        elif tipo_sensor == 2:
-                            magnetometro = A
-                    except ValueError:
-                        print("Error al convertir el tipo de sensor a entero.")
-                        continue
-    ace = ";".join(acelerometro[1:6]) if len(acelerometro) >= 6 else ""
-    giro = ";".join(giroscopio[1:6]) if len(giroscopio) >= 6 else ""
-    mag = ";".join(magnetometro[1:6]) if len(magnetometro) >= 6 else ""
-    return giro, ace, mag
 
 def desconectar():
     global Estado, envio_encoder, puertoSerial_c
@@ -118,177 +80,242 @@ def reset():
             mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
 
 def conexion():
-    global Estado, envio_encoder, Estado_reset, port_lista, selec_imu, puertoSerial_c, envio_encoder_listo, Ticks, ti_ant, puertoSerial, puertoSerial_b, pitch, roll, dis, Distancia
+    global Estado, envio_encoder, Estado_reset, port_lista, selec_imu, puertoSerial_c, envio_encoder_listo, Ticks, ti_ant
     mensaje_error.config(text="")
     Estado = 1
 
     if not port_lista.get() or not odometro_lista.get():
-        mensaje_error.config(text="Falta seleccionar puerto y odómetro.")
+        mensaje_error.config(text="Falta seleccionar el puerto o el tipo de odómetro.")
         Estado = 0
         return
     if odometro_lista.get() == "Personalizado" and not input_ratio.get():
-        mensaje_error.config(text="Falta radio para odómetro personalizado.")
+        mensaje_error.config(text="Falta seleccionar el radio especial para odómetro personalizado.")
         Estado = 0
         return
-    try:
-        hora_actual = datetime.datetime.now().strftime("%H.%M.%S.%f")
-        nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{hora_actual}.csv")
+
+    mensaje_error.config(text="")
+
+    hora_actual = datetime.datetime.now().strftime("%H.%M.%S.%f")
+    nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{hora_actual}.csv")
+
+    with open(nombre_archivo, "w", newline="") as file:
+        writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+        writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
+
+    if port_lista.get() and odometro_lista.get():
+        if selec_imu.get():
+            puertoSerial = serial.Serial(port_imu.get(), 115200, timeout=2)
+            puertoSerial.write("iniciar".encode())
+            print("Conexión con IMU establecida")
+
+            # Inicializa la conexión serial para el software sonar
+            puertoSerial_b = serial.Serial("COM29", 115200, timeout=2)
+            puertoSerial_b.write("iniciar".encode())
+            print("Conexión con software sonar establecida")
+
+        puertoSerial_c = serial.Serial(port_lista.get(), 115200, timeout=0.2)
+        print(f"Conexión establecida con puerto {port_lista.get()}")
+
+        habilitar_botones(False, True, True)
+
+        if odometro_lista.get() == "Guia de cable":
+            encoder_type = 1
+            encoder_ratio = 0
+            envio_encoder = True
+        elif odometro_lista.get() == "Carrete":
+            encoder_type = 2
+            encoder_ratio = 0
+            envio_encoder = True
+        elif odometro_lista.get() == "Personalizado":
+            encoder_type = 3
+            try:
+                # Intentar convertir el valor ingresado a float
+                encoder_ratio = float(input_ratio.get())  # Si es válido, se guarda en begin_reset
+                envio_encoder = True
+            except ValueError:
+                # Si ocurre un error al intentar convertir a float, muestra un mensaje de error
+                mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
+
+
+        if envio_encoder:
+            if envio_encoder_listo: 
+                mensaje = f"RUN"
+                #print(mensaje)
+                puertoSerial_c.write(mensaje.encode('utf-8'))
+                envio_encoder = False
+            else:# solo envía encoder una vez. Si se quiere cambiar de encoder se debe cerrar la aplicación
+                mensaje = f"RUN,{encoder_type},{encoder_ratio}"
+                #print(mensaje)
+                puertoSerial_c.write(mensaje.encode('utf-8'))
+                envio_encoder = False
+                envio_encoder_listo = True
+    
+    else:
+
+        Estado = 0
+
+    data_queue = queue.Queue()
+
+    def data_processing_loop():
+        global Estado, Ticks, ti_ant, Estado_reset
+        Ti = ""
+        pitch = "+00.0"
+        roll = "+000.0"
+        Distancia = "+000000.0"
+        acelerometro = [0, 0, 0, 0, 0, 0]
+        magnetometro = [0, 0, 0, 0, 0, 0]
+        giroscopio = [0, 0, 0, 0, 0, 0]
+        nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{datetime.datetime.now().strftime('%H.%M.%S.%f')}.csv")
 
         with open(nombre_archivo, "w", newline="") as file:
             writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
-            writer.writerow(["Hora Unix","Hora Local", "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
-
-
-        if selec_imu.get() and port_imu.get():
-            try:
-                puertoSerial = serial.Serial(port_imu.get(), 115200, timeout=0.1)
-                puertoSerial.write("iniciar".encode())
-                print("Conexión con IMU establecida")
-            except serial.SerialException as e:
-                print(f"Error al conectar con IMU: {e}")
-                mensaje_error.config(text=f"Error al conectar con IMU: {e}")
-                Estado = 0
-                return
-
-        try:
-            puertoSerial_c = serial.Serial(port_lista.get(), 115200, timeout=0.1)
-            print(f"Conexión establecida con puerto {port_lista.get()}")
-        except serial.SerialException as e:
-            print(f"Error al conectar con Encoder: {e}")
-            mensaje_error.config(text=f"Error al conectar con Encoder: {e}")
-            Estado = 0
-            return
-
-        if selec_imu.get():
-            try:
-                puertoSerial_b = serial.Serial("COM29", 115200, timeout=0.1)
-                puertoSerial_b.write("iniciar".encode())
-                print("Conexión con software sonar establecida")
-            except serial.SerialException as e:
-                print(f"Error al conectar con software sonar: {e}. Continuando sin conexión con Sonar")
-                mensaje_error.config(text=f"Advertencia: No se pudo conectar con el software sonar: {e}")
-
-        if envio_encoder:
-            if envio_encoder_listo:
-                mensaje = f"RUN"
-            else:
-                mensaje = f"RUN,{1 if odometro_lista.get() == 'Guia de cable' else 2 if odometro_lista.get() == 'Carrete' else 3},{float(input_ratio.get()) if odometro_lista.get() == 'Personalizado' else 0}"
-                print("enviado")
-                envio_encoder_listo = True
-            try:
-                puertoSerial_c.write(mensaje.encode('utf-8'))
-                envio_encoder = False
-            except serial.SerialException as e:
-                print(f"Error al enviar mensaje RUN: {e}")
-                mensaje_error.config(text=f"Error al enviar mensaje RUN: {e}")
-                Estado = 0
-                return
-
+            writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
+        
         while Estado == 1:
-            time.sleep(0.001)
+            start_time = time.perf_counter() #Para control de tiempo del ciclo
 
-            imu_data = None
-            if selec_imu.get() == 1 and puertoSerial and puertoSerial.is_open:
-                imu_thread = threading.Thread(target=leer_datos_serial, args=(puertoSerial,"IMU"), daemon=True)
-                imu_thread.start()
-                imu_thread.join(timeout=0.01)
-
-                if not imu_thread.is_alive():
-                    imu_data = imu_thread.join()
-                else:
-                    print("Timeout en la lectura del IMU")
-
-                giro, ace, mag = procesar_imu(imu_data)
-            else:
-                giro, ace, mag = "","",""
-
-            Tics_data = None
-            if puertoSerial_c and puertoSerial_c.is_open:
-                print("voy a iniciar Thread")
-                encoder_thread = threading.Thread(target=leer_datos_serial, args=(puertoSerial_c,"Encoder"), daemon=True)
-                encoder_thread.start()
-                encoder_thread.join(timeout=0.01)
-                if not encoder_thread.is_alive():
-                    print("incorporé ticks")
-                    Tics_data = encoder_thread.join()
-
+            ace = " "
+            giro = " "
+            mag = " "
             Ti = ""
-            if Tics_data:
-                for Tics in Tics_data.splitlines():
-                    if Tics:
-                        Ti = "".join(filter(lambda x: x.isdigit() or x in ['-', '+'], str(Tics)))
-                        if Ti:
-                            try:
-                                Ti_int = int(Ti)
-                                diferencial = ti_ant - Ti_int
-                                ti_ant = Ti_int
-                                Ticks -= diferencial
-                                if odometro_lista.get() == "Guia de cable":
-                                    Distancia = round((((Ticks * 0.0372 * 3.1416) / 1024) * 1), 2)
-                                elif odometro_lista.get() == "Carrete":
-                                    Distancia = round((((Ticks * 0.0225 * 3.1416) / 1024) * 1.0216), 2)
-                                elif odometro_lista.get() == "Personalizado":
-                                    Distancia = round((((Ticks * float(input_ratio.get()) * 3.1416) / 1024) * 1), 2)
+            salto_de_linea = 0
+            imu = ""  
+            if selec_imu.get() == 1:
+                while salto_de_linea < 3: 
+                    if puertoSerial.in_waiting > 0:
+                        lectura = puertoSerial.readline()
+                        if len(lectura) > 5:
+                            imu = imu + lectura.decode('cp1252')
+                            salto_de_linea = salto_de_linea + 1
+                            time.sleep(0.002) 
+                puertoSerial.write("OK".encode('utf-8'))
+                
+                if imu != "":
+                    lista_IMU = imu.split('\n') 
+                    
+                    if len(lista_IMU) >= 3:
+                        for i in lista_IMU:
+                            if len(i) > 6:
+                                A = i.split(",")
+                                if len(A) >= 6:
+                                    if A[1] == "0":
+                                        giroscopio = i.split(",")
+                                    elif A[1] == "1":
+                                        acelerometro = i.split(",") 
+                                    elif A[1] == "2":
+                                        magnetometro = i.split(",")
+                        
+                        ace = str(acelerometro[1]) + ";" + str(acelerometro[3]) + ";" + str(acelerometro[4]) + ";" + str(acelerometro[5])
+                        giro = str(giroscopio[1]) + ";" + str(giroscopio[3]) + ";" + str(giroscopio[4]) + ";" + str(giroscopio[5])
+                        mag = str(magnetometro[1]) + ";" + str(magnetometro[3]) + ";" + str(magnetometro[4]) + ";" + str(magnetometro[5]) 
 
-                                string_DIstancia=str(Distancia).split(".")
-                                if len(string_DIstancia)>1 and len(string_DIstancia[1])<2:
-                                    string_DIstancia[1]= string_DIstancia[1]+"0"
-                                Distancia=string_DIstancia[0]+"."+string_DIstancia[1] if len(string_DIstancia)>1 else string_DIstancia[0]+".00"
+            if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
+                try:
+                    Tics_bytes = puertoSerial_c.readline()
 
-                                if float(Distancia) >= 0:
-                                    Distancia = "+{0:07.2f}".format(float(Distancia)).replace(",",".")
-                                else:
-                                    Distancia = "-{0:07.2f}".format(abs(float(Distancia))).replace(",",".")
-                                dis.set(Distancia)
-                                break  # Salir del bucle interno después de procesar un valor
-                            except ValueError:
-                                print("Error al convertir Ti a entero.")
+                    # Decodificación y conversión a entero directamente:
+                    try:
+                        Ti_int = int(Tics_bytes.decode().strip()) #Decodifica, quita espacios y convierte a entero
+                    except ValueError: #Manejo de error si no se puede convertir a entero
+                        print(f"Error al convertir a entero: {Tics_bytes}")
+                        continue #Continua a la siguiente iteracion
 
-            formato = f"$PITCH{pitch},ROLL{roll},DIST{Distancia}\r\n"
+                    diferencial = ti_ant - Ti_int
+                    ti_ant = Ti_int
+                    Ticks -= diferencial
 
+                    tipo_odometro = odometro_lista.get()
+
+                    if odometro_lista.get() == "Personalizado":
+                        ratio = float(input_ratio.get())
+                        constante = ratio * 3.1416 / 1024
+                    
+                    elif tipo_odometro in CONSTANTES_ODOMETRO:
+                        constante = CONSTANTES_ODOMETRO[tipo_odometro]
+
+                    Distancia = round(Ticks * constante, 2)
+                    Distancia = f"+{Distancia:07.2f}" if Distancia >= 0 else f"-{abs(Distancia):06.2f}"
+                    data_queue.put(Distancia)
+
+                except UnicodeDecodeError:
+                    print("Error de decodificación, ignorando los datos corruptos.")
+                    continue
+            
             with open(nombre_archivo, 'a', newline='') as archivo:
                 escritor = csv.writer(archivo, delimiter=';', quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
                 hora_actual_unix = datetime.datetime.now().timestamp()
                 hora_actual_local = datetime.datetime.now()
                 escritor.writerow([hora_actual_unix, hora_actual_local, Distancia, Ticks, giro, ace, mag])
+            
+            if selec_imu.get() == 1:
+                puertoSerial_b.write(f"$PITCH{pitch},ROLL{roll},DIST{Distancia}\r\n".encode('utf-8'))
+            
 
-            if puertoSerial_b and puertoSerial_b.is_open and selec_imu.get() == 1:
-                try:
-                    puertoSerial_b.write(formato.encode('utf-8'))
-                except serial.SerialException as e:
-                    print(f"Error al escribir en puerto sonar: {e}")
-                    mensaje_error.config(text=f"Error al escribir en puerto sonar: {e}")
+            elapsed_time = time.perf_counter() - start_time
+            target_time = 1/31
+            sleep_time = max(0, 1/31 - elapsed_time) #Calcula el tiempo que debe dormir para mantener los 31hz
+            time.sleep(sleep_time) #Duerme el tiempo calculado
 
-            if Estado_reset == 1:
-                try:
-                    nueva_dis = "reset" + input_reset.get() + "@"
-                    if puertoSerial_c and puertoSerial_c.is_open:
-                        puertoSerial_c.write(nueva_dis.encode('utf-8'))
-                    Estado_reset = 0
-                except ValueError:
-                    pass
-                except serial.SerialException as e:
-                    print(f"Error al enviar reset: {e}")
-                    mensaje_error.config(text=f"Error al enviar reset: {e}")
-                    Estado = 0
+            if elapsed_time < target_time:
+                pass
+            else:
+                print(f"No se cumple el tiempo objetivo. Tiempo transcurrido: {elapsed_time:.6f}") #Imprime tiempo transcurrido
 
-            ventana.update()
+            
 
-    except Exception as e:
-        print(f"Error general en la conexión: {e}")
-        mensaje_error.config(text=f"Error general: {e}")
-        Estado = 0
-    finally:
-        if puertoSerial and puertoSerial.is_open:
-            puertoSerial.flushInput()
-            puertoSerial.close()
-        if puertoSerial_b and puertoSerial_b.is_open:
-            puertoSerial_b.flushInput()
-            puertoSerial_b.close()
-        if puertoSerial_c and puertoSerial_c.is_open:
-            puertoSerial_c.flushInput()
-            puertoSerial_c.close()
-        habilitar_botones(True, False, False)
+    def update_gui(): #Función para actualizar la GUI
+        while True:
+            try:
+                Distancia = data_queue.get_nowait() #Intenta obtener datos de la cola sin bloquear
+                dis.set(Distancia) #Actualiza la interfaz
+                ventana.update()
+            except queue.Empty: #Si la cola está vacía, espera un poco
+                time.sleep(0.01) #Espera 10ms
+            except tk.TclError: #Excepción para cuando se cierra la ventana
+                break
+
+    # Iniciar el bucle de procesamiento en un hilo separado
+    data_thread = threading.Thread(target=data_processing_loop)
+    data_thread.daemon = True #Para que el hilo se cierre cuando se cierra la ventana
+    data_thread.start()
+
+    gui_thread = threading.Thread(target=update_gui)
+    gui_thread.daemon = True
+    gui_thread.start()
+
+  #  if selec_imu == 1:
+   #     puertoSerial.flushInput()
+    #    puertoSerial.close()
+     #   puertoSerial_b.close()
+    #if port_lista.get() and odometro_lista.get():
+     #   puertoSerial_c.flushInput()
+      #  puertoSerial_c.close()
+
+def on_closing():
+    global Estado, puertoSerial_c, puertoSerial, puertoSerial_b
+    Estado = 0  # Asegura que los hilos terminen
+    time.sleep(0.5)  # Da más tiempo a los hilos para que terminen
+    if puertoSerial_c:
+        cerrar_puerto(puertoSerial_c, "C")
+    if puertoSerial:
+        cerrar_puerto(puertoSerial, "IMU")
+    if puertoSerial_b:
+        cerrar_puerto(puertoSerial_b, "Sonar")
+    ventana.destroy()
+
+def cerrar_puerto(puerto, nombre_puerto):
+    if puerto:
+        try:
+            if puerto.is_open: #Verifica si el puerto esta abierto antes de cerrarlo
+                puerto.flushInput()
+                puerto.flushOutput() #Agregado flushOutput
+                puerto.close()
+                print(f"Puerto Serial {nombre_puerto} cerrado.")
+            else:
+                print(f"Puerto Serial {nombre_puerto} ya estaba cerrado.")
+        except serial.SerialException as e:
+            print(f"Error al cerrar el puerto serial {nombre_puerto}: {e}")
+
 
 def limpiar_error(event):
     mensaje_error.config(text="")  # Borra el mensaje de error cuando el usuario interactúa con un campo de entrada
@@ -376,4 +403,5 @@ port_lista.bind("<Button-1>", actualizar_puertos)
 port_imu.bind("<Button-1>", actualizar_puertos)
 
 # Iniciar actualización de puertos
+ventana.protocol("WM_DELETE_WINDOW", on_closing)
 ventana.mainloop()
