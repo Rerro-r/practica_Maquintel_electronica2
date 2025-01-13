@@ -19,6 +19,9 @@ ti_ant = 0
 puertoSerial_c = None
 puertoSerial = None
 puertoSerial_b = None
+constante = None
+data_queue = None
+data_thread = None
 
 CONSTANTES_ODOMETRO = {
     "Guia de cable": 0.0372 * 3.1416 / 1024,
@@ -51,8 +54,45 @@ def actualizar_puertos(*args):
             port_lista["values"] = puertos_disponibles
             port_imu["values"] = puertos_disponibles
 
+
+def leer_imu(puerto_imu): #funcion para leer el IMU
+    salto_de_linea = 0
+    imu = ""
+    if puerto_imu: # verificar que el puerto exista
+        while salto_de_linea < 3: 
+            if puerto_imu.in_waiting > 0:
+                lectura = puerto_imu.readline()
+                if len(lectura) > 5:
+                    imu = imu + lectura.decode('cp1252')
+                    salto_de_linea = salto_de_linea + 1
+                    time.sleep(0.002) 
+        puerto_imu.write("OK".encode('utf-8'))
+    return imu
+
+def procesar_imu(imu_data): #funcion para procesar los datos del imu
+    acelerometro = [0, 0, 0, 0, 0, 0]
+    magnetometro = [0, 0, 0, 0, 0, 0]
+    giroscopio = [0, 0, 0, 0, 0, 0]
+    lista_IMU = imu_data.split('\n')
+    if len(lista_IMU) >= 3:
+        for i in lista_IMU:
+            if len(i) > 6:
+                A = i.split(",")
+                if len(A) >= 6:
+                    if A[1] == "0":
+                        giroscopio = i.split(",")
+                    elif A[1] == "1":
+                        acelerometro = i.split(",")
+                    elif A[1] == "2":
+                        magnetometro = i.split(",")
+    ace = str(acelerometro[1]) + ";" + str(acelerometro[3]) + ";" + str(acelerometro[4]) + ";" + str(acelerometro[5])
+    giro = str(giroscopio[1]) + ";" + str(giroscopio[3]) + ";" + str(giroscopio[4]) + ";" + str(giroscopio[5])
+    mag = str(magnetometro[1]) + ";" + str(magnetometro[3]) + ";" + str(magnetometro[4]) + ";" + str(magnetometro[5])
+    return ace, giro, mag
+
+
 def desconectar():
-    global Estado, envio_encoder, puertoSerial_c
+    global Estado, envio_encoder, puertoSerial_c, data_thread
     Estado = 0
     envio_encoder = True
     habilitar_botones(True, False, False)
@@ -60,27 +100,28 @@ def desconectar():
     print(mensaje)
     if puertoSerial_c != None:
         puertoSerial_c.write(mensaje.encode('utf-8'))
+        cerrar_puerto(puertoSerial_c, "C") # Cerrar el puerto serial
+        puertoSerial_c = None #importante setear a none para que se pueda volver a abrir
+    if data_thread and data_thread.is_alive(): #esperar a que el hilo termine
+        Estado = 0
+        data_thread.join(timeout=1) # esperar que el hilo termine
+        print("Hilo de procesamiento detenido.")
 
 def reset():
-    global Estado_reset, begin_reset, puertoSerial_c, Ticks
+    global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante
     mensaje_error.config(text="")
     if Estado == 1:
         try:
             # Intentar convertir el valor ingresado a float
             begin_reset = float(input_reset.get())  # Si es válido, se guarda en begin_reset
             Estado_reset = 1  # Si la conversión es exitosa, se activa el reset
-            if odometro_lista.get() == "Guia de cable":
-                Ticks = round((begin_reset * 1024) / (0.0372 * 3.1416))
-            elif odometro_lista.get() == "Carrete":
-                Ticks = round((begin_reset * 1024) / (0.0225 * 3.1416 * 1.0216))
-            elif odometro_lista.get() == "Personalizado":
-                Ticks = round((begin_reset * 1024) / (float(input_ratio.get()) * 3.1416))
+            Ticks = round(begin_reset / constante)
         except ValueError:
             # Si ocurre un error al intentar convertir a float, muestra un mensaje de error
             mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
 
 def conexion():
-    global Estado, envio_encoder, Estado_reset, port_lista, selec_imu, puertoSerial_c, envio_encoder_listo, Ticks, ti_ant
+    global Estado, envio_encoder, Estado_reset, port_lista, selec_imu, puertoSerial_c, envio_encoder_listo, Ticks, ti_ant, constante, data_thread
     mensaje_error.config(text="")
     Estado = 1
 
@@ -113,7 +154,7 @@ def conexion():
             puertoSerial_b.write("iniciar".encode())
             print("Conexión con software sonar establecida")
 
-        puertoSerial_c = serial.Serial(port_lista.get(), 115200, timeout=0.2)
+        puertoSerial_c = serial.Serial(port_lista.get(), 115200, timeout=0.04)
         print(f"Conexión establecida con puerto {port_lista.get()}")
 
         habilitar_botones(False, True, True)
@@ -122,16 +163,19 @@ def conexion():
             encoder_type = 1
             encoder_ratio = 0
             envio_encoder = True
+            constante = CONSTANTES_ODOMETRO[odometro_lista.get()]
         elif odometro_lista.get() == "Carrete":
             encoder_type = 2
             encoder_ratio = 0
             envio_encoder = True
+            constante = CONSTANTES_ODOMETRO[odometro_lista.get()]
         elif odometro_lista.get() == "Personalizado":
             encoder_type = 3
             try:
                 # Intentar convertir el valor ingresado a float
                 encoder_ratio = float(input_ratio.get())  # Si es válido, se guarda en begin_reset
                 envio_encoder = True
+                constante = encoder_ratio * 3.1416 / 1024
             except ValueError:
                 # Si ocurre un error al intentar convertir a float, muestra un mensaje de error
                 mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
@@ -150,138 +194,24 @@ def conexion():
                 envio_encoder = False
                 envio_encoder_listo = True
     
+    
     else:
 
         Estado = 0
 
-    data_queue = queue.Queue()
-
-    def data_processing_loop():
-        global Estado, Ticks, ti_ant, Estado_reset
-        Ti = ""
-        pitch = "+00.0"
-        roll = "+000.0"
-        Distancia = "+000000.0"
-        acelerometro = [0, 0, 0, 0, 0, 0]
-        magnetometro = [0, 0, 0, 0, 0, 0]
-        giroscopio = [0, 0, 0, 0, 0, 0]
-        nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{datetime.datetime.now().strftime('%H.%M.%S.%f')}.csv")
-
-        with open(nombre_archivo, "w", newline="") as file:
-            writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
-            writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
-        
-        while Estado == 1:
-            start_time = time.perf_counter() #Para control de tiempo del ciclo
-
-            ace = " "
-            giro = " "
-            mag = " "
-            Ti = ""
-            salto_de_linea = 0
-            imu = ""  
-            if selec_imu.get() == 1:
-                while salto_de_linea < 3: 
-                    if puertoSerial.in_waiting > 0:
-                        lectura = puertoSerial.readline()
-                        if len(lectura) > 5:
-                            imu = imu + lectura.decode('cp1252')
-                            salto_de_linea = salto_de_linea + 1
-                            time.sleep(0.002) 
-                puertoSerial.write("OK".encode('utf-8'))
-                
-                if imu != "":
-                    lista_IMU = imu.split('\n') 
-                    
-                    if len(lista_IMU) >= 3:
-                        for i in lista_IMU:
-                            if len(i) > 6:
-                                A = i.split(",")
-                                if len(A) >= 6:
-                                    if A[1] == "0":
-                                        giroscopio = i.split(",")
-                                    elif A[1] == "1":
-                                        acelerometro = i.split(",") 
-                                    elif A[1] == "2":
-                                        magnetometro = i.split(",")
-                        
-                        ace = str(acelerometro[1]) + ";" + str(acelerometro[3]) + ";" + str(acelerometro[4]) + ";" + str(acelerometro[5])
-                        giro = str(giroscopio[1]) + ";" + str(giroscopio[3]) + ";" + str(giroscopio[4]) + ";" + str(giroscopio[5])
-                        mag = str(magnetometro[1]) + ";" + str(magnetometro[3]) + ";" + str(magnetometro[4]) + ";" + str(magnetometro[5]) 
-
-            if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
-                try:
-                    Tics_bytes = puertoSerial_c.readline()
-
-                    # Decodificación y conversión a entero directamente:
-                    try:
-                        Ti_int = int(Tics_bytes.decode().strip()) #Decodifica, quita espacios y convierte a entero
-                    except ValueError: #Manejo de error si no se puede convertir a entero
-                        print(f"Error al convertir a entero: {Tics_bytes}")
-                        continue #Continua a la siguiente iteracion
-
-                    diferencial = ti_ant - Ti_int
-                    ti_ant = Ti_int
-                    Ticks -= diferencial
-
-                    tipo_odometro = odometro_lista.get()
-
-                    if odometro_lista.get() == "Personalizado":
-                        ratio = float(input_ratio.get())
-                        constante = ratio * 3.1416 / 1024
-                    
-                    elif tipo_odometro in CONSTANTES_ODOMETRO:
-                        constante = CONSTANTES_ODOMETRO[tipo_odometro]
-
-                    Distancia = round(Ticks * constante, 2)
-                    Distancia = f"+{Distancia:07.2f}" if Distancia >= 0 else f"-{abs(Distancia):06.2f}"
-                    data_queue.put(Distancia)
-
-                except UnicodeDecodeError:
-                    print("Error de decodificación, ignorando los datos corruptos.")
-                    continue
-            
-            with open(nombre_archivo, 'a', newline='') as archivo:
-                escritor = csv.writer(archivo, delimiter=';', quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
-                hora_actual_unix = datetime.datetime.now().timestamp()
-                hora_actual_local = datetime.datetime.now()
-                escritor.writerow([hora_actual_unix, hora_actual_local, Distancia, Ticks, giro, ace, mag])
-            
-            if selec_imu.get() == 1:
-                puertoSerial_b.write(f"$PITCH{pitch},ROLL{roll},DIST{Distancia}\r\n".encode('utf-8'))
-            
-
-            elapsed_time = time.perf_counter() - start_time
-            target_time = 1/31
-            sleep_time = max(0, 1/31 - elapsed_time) #Calcula el tiempo que debe dormir para mantener los 31hz
-            time.sleep(sleep_time) #Duerme el tiempo calculado
-
-            if elapsed_time < target_time:
-                pass
-            else:
-                print(f"No se cumple el tiempo objetivo. Tiempo transcurrido: {elapsed_time:.6f}") #Imprime tiempo transcurrido
 
             
 
-    def update_gui(): #Función para actualizar la GUI
-        while True:
-            try:
-                Distancia = data_queue.get_nowait() #Intenta obtener datos de la cola sin bloquear
-                dis.set(Distancia) #Actualiza la interfaz
-                ventana.update()
-            except queue.Empty: #Si la cola está vacía, espera un poco
-                time.sleep(0.01) #Espera 10ms
-            except tk.TclError: #Excepción para cuando se cierra la ventana
-                break
 
     # Iniciar el bucle de procesamiento en un hilo separado
     data_thread = threading.Thread(target=data_processing_loop)
     data_thread.daemon = True #Para que el hilo se cierre cuando se cierra la ventana
     data_thread.start()
+    update_gui()
 
-    gui_thread = threading.Thread(target=update_gui)
-    gui_thread.daemon = True
-    gui_thread.start()
+   # gui_thread = threading.Thread(target=update_gui)
+   # gui_thread.daemon = True
+   # gui_thread.start()
 
   #  if selec_imu == 1:
    #     puertoSerial.flushInput()
@@ -290,6 +220,110 @@ def conexion():
     #if port_lista.get() and odometro_lista.get():
      #   puertoSerial_c.flushInput()
       #  puertoSerial_c.close()
+
+def data_processing_loop():
+    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue
+    Ti = ""
+    tiempo_anterior_escritura = time.perf_counter()
+    tiempos_de_ciclo = []
+    data_queue = queue.Queue()
+    distancia_anterior = None
+    ticks_anteriores = None
+    pitch = "+00.0"
+    roll = "+000.0"
+    Distancia_str = "+000000.0"
+    nombre_archivo = os.path.join(current_folder, "CSVs de prueba", f"{datetime.datetime.now().strftime('%H.%M.%S.%f')}.csv")
+
+    with open(nombre_archivo, "w", newline="") as file:
+        writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+        writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
+    
+    while Estado == 1:
+        start_time = time.perf_counter() #Para control de tiempo del ciclo
+        tipo_odometro = odometro_lista.get()
+        Ti = ""
+        salto_de_linea = 0
+        imu = ""  
+        ace = ""
+        giro = ""
+        mag = ""
+        if selec_imu.get() == 1:
+            imu_data = leer_imu(puertoSerial)
+            if imu_data:
+                ace, giro, mag = procesar_imu(imu_data)
+            else:
+                ace = giro = mag = ""
+            
+        if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
+            try:
+                Tics_bytes = puertoSerial_c.read_until(b'\r\n')
+                if not Estado:
+                    break
+
+                # Decodificación y conversión a entero directamente:
+                try:
+                    Ti_int = int(Tics_bytes.decode().strip()) #Decodifica, quita espacios y convierte a entero
+                except ValueError: #Manejo de error si no se puede convertir a entero
+                    print(f"Error al convertir a entero: {Tics_bytes}")
+                    continue #Continua a la siguiente iteracion
+                if Ti_int != ticks_anteriores:
+                    diferencial = ti_ant - Ti_int
+                    ti_ant = Ti_int
+                    Ticks -= diferencial
+
+                    Distancia = round(Ticks * constante, 2)
+                    if Distancia != distancia_anterior:
+                        Distancia_str = f"{Distancia:+08.2f}"
+                        distancia_anterior = Distancia #Actualizar la distancia anterior
+                        ticks_anteriores = Ti_int #Actualizar los ticks anteriores
+                        data_queue.put(Distancia_str) #Solo guardar en la cola si la distancia cambio                  
+                else:
+                    Distancia_str = f"{distancia_anterior:+08.2f}"
+
+            except UnicodeDecodeError:
+                print("Error de decodificación, ignorando los datos corruptos.")
+                continue
+
+        
+        tiempo_actual = time.perf_counter()
+        if tiempo_actual - tiempo_anterior_escritura >= 1/31:
+            with open(nombre_archivo, 'a', newline='') as archivo:
+                escritor = csv.writer(archivo, delimiter=';', quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+                hora_actual_unix = datetime.datetime.now().timestamp()
+                hora_actual_local = datetime.datetime.now()
+                escritor.writerow([hora_actual_unix, hora_actual_local, Distancia_str, Ticks, giro, ace, mag])
+            tiempo_anterior_escritura = tiempo_actual
+            
+        if selec_imu.get() == 1:
+            puertoSerial_b.write(f"$PITCH{pitch},ROLL{roll},DIST{Distancia}\r\n".encode('utf-8'))
+        
+
+        elapsed_time = time.perf_counter() - start_time
+        tiempos_de_ciclo.append(elapsed_time)
+        target_time = 1/31
+
+        if elapsed_time > target_time:
+            print(f"No se cumple el tiempo objetivo. Tiempo transcurrido: {elapsed_time:.6f}") #Imprime tiempo transcurrido
+
+        if tiempos_de_ciclo:
+            promedio = sum(tiempos_de_ciclo) / len(tiempos_de_ciclo)
+            maximo = max(tiempos_de_ciclo)
+            minimo = min(tiempos_de_ciclo)
+            print(f"Tiempos de ciclo: Promedio: {promedio:.6f}, Maximo: {maximo:.6f}, Minimo: {minimo:.6f}")
+
+
+def update_gui():
+    ventana.after(0, update_gui_inner) #usar after para evitar bucle infinito
+def update_gui_inner():
+    global data_queue
+    try:
+        Distancia = data_queue.get_nowait()
+        dis.set(Distancia)
+    except queue.Empty:
+        pass
+    except tk.TclError:
+        return
+    ventana.after(20, update_gui_inner) #actualizar cada 33ms
 
 def on_closing():
     global Estado, puertoSerial_c, puertoSerial, puertoSerial_b
