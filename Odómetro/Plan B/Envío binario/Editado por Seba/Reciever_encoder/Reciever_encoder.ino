@@ -1,7 +1,7 @@
-#include <Adafruit_SSD1306.h>
 #include <SPI.h>
 #include <LoRa.h>
 #include <Wire.h>
+#include <Adafruit_SSD1306.h>
 //########################### OLED ##############################
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 32
@@ -19,7 +19,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 unsigned long previousMillis = 0;  // Tiempo entre paquetes
 unsigned long lastOledUpdate = 0;  // Control de actualización OLED
 //unsigned long lastPrintMillis = 0;  // Control de impresión en Serial Monitor
-char receivedData[7] = {0};  // Buffer para datos del paquete
+char receivedData[4] = {0};  // Buffer para datos del paquete
 int batteryLevel = 0;
 long leftEncoderTicks = 0;
 float distanciaRecorrida = 0.0;
@@ -28,6 +28,8 @@ float encoderRatio = 0.0;
 int encoderType = 0;
 float beginReset = 0.0;
 String runCommand = "";
+
+
 void setup() {
   Serial.begin(115200);
   while (!Serial);
@@ -39,10 +41,7 @@ void setup() {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
-  // Configuración de LoRa para ajustar el rendimiento
-  //LoRa.setSpreadingFactor(7);  // Comúnmente 7-12, prueba con 7 para mayor velocidad
-  //LoRa.setSignalBandwidth(125E3);  // Ancho de banda de 125 kHz
-  //LoRa.setCodingRate4(5);  // Tasa de codificación 4/5
+
   LoRa.receive();
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println("SSD1306 allocation failed");
@@ -53,11 +52,7 @@ void setup() {
   display.display();
   Serial.println("Esperando datos por Serial...");
   String run_odometro_radio = ""; // Variable para almacenar el dato recibido
- /* // Mostrar mensaje de espera
-  display.setCursor(0, 23);
-  display.print("esperando datos...");
-  display.display(); // Mostrar mensaje en pantalla
-  */
+
   // Esperar hasta que llegue un dato por serial
   while (run_odometro_radio.length() == 0) {
       // Mostrar mensaje de espera
@@ -102,6 +97,10 @@ void setup() {
   display.display();
   delay(5000); // Mostrar los resultados durante 5 segundos
 }
+
+
+
+
 void loop() {
   unsigned long currentMillis = millis();  // Obtener tiempo actual
   // Revisar datos del puerto LoRa
@@ -114,35 +113,19 @@ void loop() {
     handleSerialData();
   }
 }
-  // Actualizar la pantalla OLED cada segundo
- // if (currentMillis - lastOledUpdate >= 1000) {
-  //  updateOLED();
-    //lastOledUpdate = currentMillis;
-  //}
-  // Actualizar mensajes periódicos, si aplica
- // if (currentMillis - lastPrintMillis >= 1000) {
-    //lastPrintMillis = currentMillis;
-  //}
-//}
+
 // Manejo de datos del LoRa
 void handleLoRaData(int packetSize) {
   memset(receivedData, 0, sizeof(receivedData));
-  if (packetSize <= sizeof(receivedData)) { // Si el paquete tiene 7 bytes o menos
-    int i = 0;
-    while (LoRa.available()) {
-      receivedData[i++] = LoRa.read();
-    }
-   // receivedData[i] = '\0'; // Terminar la cadena
-  } else { // Si el paquete tiene más de 7 bytes
-    // Descartar los primeros bytes
-    for (int i = 0; i < packetSize - sizeof(receivedData); i++) {
-      LoRa.read(); // Leer y descartar
-    }
-    // Leer los últimos 7 bytes
-    LoRa.readBytes(receivedData, sizeof(receivedData));
-  //  receivedData[sizeof(receivedData)] = '\0'; // Asegurar terminación nula
-  }
+  if (packetSize <= sizeof(receivedData)) { 
+    LoRa.readBytes(receivedData, sizeof(receivedData));}
+    
+
+
+
   int indexQuestion = receivedData[0];  // Determinar tipo de pregunta
+
+
   if (indexQuestion == 1) {
     // Enviar configuración del encoder en binario por LoRa
     int bufferSize = 1 + runCommand.length() + 1 + sizeof(encoderRatio);
@@ -156,17 +139,22 @@ void handleLoRaData(int packetSize) {
     // Enviar el buffer completo
     LoRa.write(buffer, bufferSize);
     LoRa.endPacket();
+
+
   } else if (indexQuestion == 2) {
-    // Procesar datos binarios del paquete recibido
     int offset = 1; // Comenzar después del índice de pregunta
-    // Leer leftEncoderTicks (4 bytes - tipo `long`)
-   // long leftEncoderTicks;
-    memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
-    offset += sizeof(leftEncoderTicks);
-    // Leer batteryLevel (1 byte - tipo `int`)
-    batteryLevel = (int)receivedData[offset];
+    int16_t shortleftEncoderTicks;
+    uint8_t batteryLevel_;
+    memcpy(&shortleftEncoderTicks, &receivedData[offset], sizeof(shortleftEncoderTicks));
+    offset += sizeof(shortleftEncoderTicks);
+    // Leer batteryLevel (1 byte )
+    batteryLevel_ = (uint8_t)receivedData[offset];
     offset += sizeof(uint8_t);
-    Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+    batteryLevel = (int)batteryLevel_;
+    leftEncoderTicks = shortleftEncoderTicks;
+    Serial.println(String(shortleftEncoderTicks) + "," + String(batteryLevel));
+
+
   } else if (indexQuestion == 3){
      // Responder al comando recibido
     int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string
@@ -180,6 +168,7 @@ void handleLoRaData(int packetSize) {
     LoRa.endPacket();
   }
 }
+
 // Manejo de datos del Serial
 void handleSerialData() {
   String data = Serial.readString();
@@ -194,31 +183,3 @@ void handleSerialData() {
     display.display();
   }
 }
-/*
-// Actualización del OLED
-void updateOLED() {
-  char buffer[20]; // Buffer para almacenar la cadena formateada (tamaño suficiente para un long)
-  char buffer2[15];
-// Formatear la cadena
-  snprintf(buffer, sizeof(buffer), "T: %d", leftEncoderTicks); // %ld para long
- // Buffer para la cadena formateada (ajusta el tamaño si es necesario)
-  snprintf(buffer2, sizeof(buffer), "Bat: %d%%", batteryLevel); // %% para imprimir un % literal
-  display.clearDisplay();
-  display.setCursor(0, 8);
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  if (batteryLevel < 20) {
-    display.println("Bat baja!");
-  } else {
-    display.println(buffer2);
-  }
-  display.setCursor(0, 16);
-  display.println(buffer);
-//  display.setCursor(0, 23);
- // display.print("Encoder: ");
- // display.print(encoderType);
- // display.print(",");
- // display.println(encoderRatio);
-  display.display();
-}
-*/

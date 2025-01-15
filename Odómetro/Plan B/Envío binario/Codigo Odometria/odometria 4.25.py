@@ -24,7 +24,8 @@ data_queue = None
 data_thread = None
 data2_queue = None
 Bat_str = "00"
-Distancia_str = "+000000.0"
+Distancia_str = "+0000.0"
+reset_activado = False
 
 CONSTANTES_ODOMETRO = {
     "Guia de cable": 0.0372 * 3.1416 / 1024,
@@ -95,9 +96,11 @@ def procesar_imu(imu_data): #funcion para procesar los datos del imu
 
 
 def desconectar():
-    global Estado, envio_encoder, puertoSerial_c, data_thread
+    global Estado, envio_encoder, puertoSerial_c, data_thread#, Ticks, ti_ant
     Estado = 0
     envio_encoder = True
+   # Ticks = 0
+   # ti_ant = 0
     habilitar_botones(True, False, False)
     mensaje = "STOP"
     print(mensaje)
@@ -111,10 +114,11 @@ def desconectar():
         print("Hilo de procesamiento detenido.")
 
 def reset():
-    global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante, Distancia_str
+    global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante, Distancia_str, reset_activado
     mensaje_error.config(text="")
     if Estado == 1:
         try:
+            reset_activado = True
             # Intentar convertir el valor ingresado a float
             begin_reset = float(input_reset.get())  # Si es válido, se guarda en begin_reset
             Estado_reset = 1  # Si la conversión es exitosa, se activa el reset
@@ -226,7 +230,7 @@ def conexion():
       #  puertoSerial_c.close()
 
 def data_processing_loop():
-    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue, Distancia_str, Bat_str, data2_queue
+    global Estado, Ticks, ti_ant, Estado_reset, constante, data_queue, Distancia_str, Bat_str, data2_queue, reset_activado
     Ti = ""
     tiempo_anterior_escritura = time.perf_counter()
     tiempos_de_ciclo = []
@@ -274,6 +278,12 @@ def data_processing_loop():
                     print(f"Error al convertir a entero: {Tics_bytes}")
                     continue #Continua a la siguiente iteracion
                 if Ti_int != ticks_anteriores:
+                    if abs(Ti_int - ti_ant) >= 50000:
+                        print(Ti_int)
+                        if reset_activado == False:
+                            Ti_int = ti_ant
+                        else:
+                            reset_activado = False
                     diferencial = ti_ant - Ti_int
                     ti_ant = Ti_int
                     Ticks -= diferencial
