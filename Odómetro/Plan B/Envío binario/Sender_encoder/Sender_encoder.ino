@@ -13,6 +13,11 @@
 #define RST     23   // GPIO14 -- RESET (If Lora does not work, replace it with GPIO14)
 #define DI0     26   // GPIO26 -- IRQ(Interrupt Request)
 #define BAND    868E6
+// Packet structure definitions
+#define PACKET_ID_SIZE 1
+#define PACKET_LENGTH_SIZE 1
+#define PACKET_DATA_SIZE (sizeof(_LeftEncoderTicks) + sizeof(batteryLevel))
+#define PACKET_CRC_SIZE 2
 
 String rssi = "RSSI --";
 String packSize = "--";
@@ -89,6 +94,9 @@ void setup() {
 
   SPI.begin(SCK,MISO,MOSI,SS);
   LoRa.setPins(SS,RST,DI0);
+  LoRa.setSpreadingFactor(10); // SF 10
+  LoRa.setSignalBandwidth(125E3); // BW 125 kHz
+  LoRa.setCodingRate4(5); // CR 4/5 (Valor por defecto, puedes probar con 6,7 u 8 para mayor robustez)
   if (!LoRa.begin(868E6)) {
     Serial.println("Starting LoRa failed!");
     while (1);
@@ -198,7 +206,7 @@ void loop() {
       // Enviar datos por LoRa
   if (currentMillis - lastLoRaSend >= 30) {
     //if (currentMillis - lastLoRaSend != 61) {
-    //Serial.println(currentMillis - lastLoRaSend);
+    Serial.println(currentMillis - lastLoRaSend);
    //// }
     sendLoRaPacket();
     lastLoRaSend = currentMillis;
@@ -303,15 +311,15 @@ void sendLoRaPacket() {
   //if (transmissionFinished) {
    // transmissionFinished = false;
     //Serial.println(_LeftEncoderTicks);
-    uint8_t buffer[7]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks y 2 bytes para batteryLevel
-
-    // Construir el paquete en el buffer
-    buffer[0] = 2; memcpy(buffer + 1, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks)); memcpy(buffer + 5, &batteryLevel, sizeof(batteryLevel));
+    uint8_t buffer[10]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks y 2 bytes para batteryLevel
     long leftEncoderTicks;
-
-        // Extraer leftEncoderTicks (4 bytes)
-    memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
-    //Serial.println(leftEncoderTicks);
+    // Construir el paquete en el buffer
+    buffer[0] = 2; buffer[1] = PACKET_DATA_SIZE + PACKET_CRC_SIZE; memcpy(buffer + 2, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks)); memcpy(buffer + 6, &batteryLevel, sizeof(batteryLevel));
+  
+    // Calculate CRC (replace with your chosen CRC algorithm)
+    uint16_t crc = calculateCRC(buffer, PACKET_DATA_SIZE);
+    memcpy(buffer + 8, &crc, PACKET_CRC_SIZE);
+    Serial.println(crc);
     LoRa.beginPacket();
 
     // Enviar un identificador o encabezado (opcional)
@@ -362,4 +370,22 @@ void HandleLeftMotorInterruptA() {
   #else
     _LeftEncoderTicks -= _LeftEncoderBSet ? -1 : +1;
   #endif
+}
+
+// Implement a function to calculate CRC for the data portion of the packet
+uint16_t calculateCRC(uint8_t *data, size_t length) {
+  // ... (implement your chosen CRC algorithm)
+  // Example using CRC-16-CCITT:
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < length; i++) {
+    crc ^= data[i] << 8;
+    for (int j = 0; j < 8; j++) {
+      if (crc & 0x8000) {
+        crc = (crc << 1) ^ 0x1021;
+      } else {
+        crc <<= 1;
+      }
+    }
+  }
+  return crc;
 }
