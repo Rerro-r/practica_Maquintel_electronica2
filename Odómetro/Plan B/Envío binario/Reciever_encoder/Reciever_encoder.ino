@@ -22,18 +22,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define PACKET_ID_POS 0
 #define PACKET_LENGTH_POS 1
 #define PACKET_DATA_POS 2
-#define PACKET_CRC_POS 6 // Posición del CRC (después de ID, Longitud, Datos)
-
 #define PACKET_ID_SIZE 1
 #define PACKET_LENGTH_SIZE 1
-#define PACKET_DATA_SIZE (sizeof(long) + sizeof(int)) // 4 + 2 = 6 bytes
-#define PACKET_CRC_SIZE 2
+#define PACKET_DATA_SIZE (sizeof(long) + sizeof(int)) 
 
 unsigned long previousMillis = 0;  // Tiempo entre paquetes
 unsigned long lastOledUpdate = 0;  // Control de actualización OLED
 //unsigned long lastPrintMillis = 0;  // Control de impresión en Serial Monitor
 
-char receivedData[10] = {0};  // Buffer para datos del paquete
+char receivedData[9] = {0};  // Buffer para datos del paquete
 int batteryLevel = 0;
 long leftEncoderTicks = 0;
 float distanciaRecorrida = 0.0;
@@ -42,6 +39,10 @@ float encoderRatio = 0.0;
 int encoderType = 0;
 float beginReset = 0.0;
 String runCommand = "";
+
+// Define los bytes de inicio y fin
+const uint8_t START_BYTE = 0xAA;
+const uint8_t END_BYTE = 0x55;
 
 void setup() {
   Serial.begin(115200);
@@ -167,88 +168,65 @@ void loop() {
 void handleLoRaData(int packetSize) {
   memset(receivedData, 0, sizeof(receivedData));
   if (packetSize <= sizeof(receivedData)) { // Si el paquete tiene 10 bytes o menos
-    int i = 0;
-    while (LoRa.available()) {
-      LoRa.readBytes(receivedData, sizeof(receivedData));
+    int bytesRead = LoRa.readBytes(receivedData, min(packetSize, (int)sizeof(receivedData)));
+  
+
+    // Verifica la longitud y los bytes de inicio y fin
+    if (bytesRead >= 3 && receivedData[0] == START_BYTE && receivedData[bytesRead - 1] == END_BYTE) {
+      uint8_t indexQuestion = receivedData[1];
+      uint8_t receivedLength = receivedData[2];
+  
+  
+    if (indexQuestion == 1) {
+      // Enviar configuración del encoder en binario por LoRa
+      int bufferSize = 1 + runCommand.length() + 1 + sizeof(encoderRatio);
+      uint8_t buffer[bufferSize]; // Buffer de tamaño variable
+
+      // Construir el paquete en el buffer
+      buffer[0] = 1; // Confirmación de recepción (como uint8_t)
+      memcpy(buffer + 1, runCommand.c_str(), runCommand.length()); // Copia el string
+      buffer[1 + runCommand.length()] = (uint8_t)encoderType; // Copia el tipo de encoder
+      memcpy(buffer + 2 + runCommand.length(), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
+
+      LoRa.beginPacket();
+
+      // Enviar el buffer completo
+      LoRa.write(buffer, bufferSize);
+
+      LoRa.endPacket();
+      Serial.println(bufferSize);
+    } else if (indexQuestion == 2 && receivedLength == PACKET_DATA_SIZE && bytesRead == 3 + receivedLength + 1) {
+
+      long receivedLeftEncoderTicks;
+      int receivedBatteryLevel;
+      uint16_t receivedCRC;
+
+      memcpy(&receivedLeftEncoderTicks, receivedData + 3, sizeof(receivedLeftEncoderTicks));
+      memcpy(&receivedBatteryLevel, receivedData + 3 + sizeof(receivedLeftEncoderTicks), sizeof(receivedBatteryLevel));
+
+      leftEncoderTicks = receivedLeftEncoderTicks;
+      batteryLevel = receivedBatteryLevel;
+      Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel)); // Imprime en formato CSV
+      //updateOLED(); // Actualizar el display
+      
+
+    } else if (indexQuestion == 3){
+      // Responder al comando recibido
+      int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string
+      uint8_t buffer[bufferSize]; // Buffer de tamaño variable
+
+      // Construir el paquete en el buffer
+      buffer[0] = 3; // Confirmación de recepción (como uint8_t)
+      memcpy(buffer + 1, runCommand.c_str(), runCommand.length()); // Copia el string
+
+      LoRa.beginPacket();
+
+      // Enviar el buffer completo
+      LoRa.write(buffer, bufferSize);
+
+      LoRa.endPacket();
     }
-   // receivedData[i] = '\0'; // Terminar la cadena
-  } else { // Si el paquete tiene más de 7 bytes
-    // Descartar los primeros bytes
-    for (int i = 0; i < packetSize - sizeof(receivedData); i++) {
-      LoRa.read(); // Leer y descartar
     }
-
-    // Leer los últimos 7 bytes
-    LoRa.readBytes(receivedData, sizeof(receivedData));
-  //  receivedData[sizeof(receivedData)] = '\0'; // Asegurar terminación nula
-  }
-
-  int indexQuestion = receivedData[0];  // Determinar tipo de pregunta
-
-  if (indexQuestion == 1) {
-    // Enviar configuración del encoder en binario por LoRa
-    int bufferSize = 1 + runCommand.length() + 1 + sizeof(encoderRatio);
-    uint8_t buffer[bufferSize]; // Buffer de tamaño variable
-
-    // Construir el paquete en el buffer
-    buffer[0] = 1; // Confirmación de recepción (como uint8_t)
-    memcpy(buffer + 1, runCommand.c_str(), runCommand.length()); // Copia el string
-    buffer[1 + runCommand.length()] = (uint8_t)encoderType; // Copia el tipo de encoder
-    memcpy(buffer + 2 + runCommand.length(), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
-
-    LoRa.beginPacket();
-
-    // Enviar el buffer completo
-    LoRa.write(buffer, bufferSize);
-
-    LoRa.endPacket();
-  } else if (indexQuestion == 2) {
-    // Procesar datos binarios del paquete recibido
-    uint8_t receivedLength = receivedData[PACKET_LENGTH_POS];
-            if (receivedLength == PACKET_DATA_SIZE + PACKET_CRC_SIZE) {
-                long receivedLeftEncoderTicks;
-                int receivedBatteryLevel;
-                uint16_t receivedCRC;
-
-                memcpy(&receivedLeftEncoderTicks, receivedData + PACKET_DATA_POS, sizeof(receivedLeftEncoderTicks));
-                memcpy(&receivedBatteryLevel, receivedData + PACKET_DATA_POS + sizeof(receivedLeftEncoderTicks), sizeof(receivedBatteryLevel));
-                memcpy(&receivedCRC, receivedData + PACKET_CRC_POS, sizeof(receivedCRC));
-            
-                uint8_t dataForCRC[PACKET_DATA_SIZE];
-                memcpy(dataForCRC, receivedData + PACKET_DATA_POS, PACKET_DATA_SIZE); // Copia los datos para el CRC
-                uint16_t calculatedCRC = calculateCRC(dataForCRC, PACKET_DATA_SIZE);
-
-
-             //   memcpy((long*)(receivedData + PACKET_DATA_POS), sizeof(receivedLeftEncoderTicks));
-                if (calculatedCRC == receivedCRC) {
-                    leftEncoderTicks = receivedLeftEncoderTicks;
-                    batteryLevel = receivedBatteryLevel;
-                    Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel)); // Imprime en formato CSV
-                    //updateOLED(); // Actualizar el display
-                } else {
-                    Serial.println("Error de CRC");
-                    Serial.print("CRC Recibido: ");
-                    Serial.println(receivedCRC, HEX);
-                    Serial.print("CRC Calculado: ");
-                    Serial.println(calculatedCRC, HEX);
-                }
-            }   
-
-  } else if (indexQuestion == 3){
-     // Responder al comando recibido
-    int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string
-    uint8_t buffer[bufferSize]; // Buffer de tamaño variable
-
-    // Construir el paquete en el buffer
-    buffer[0] = 3; // Confirmación de recepción (como uint8_t)
-    memcpy(buffer + 1, runCommand.c_str(), runCommand.length()); // Copia el string
-
-    LoRa.beginPacket();
-
-    // Enviar el buffer completo
-    LoRa.write(buffer, bufferSize);
-
-    LoRa.endPacket();
   }
 }
 
@@ -304,19 +282,3 @@ void updateOLED() {
   display.display();
 }
 */
-
-// Función para calcular CRC-16-CCITT
-uint16_t calculateCRC(uint8_t *data, size_t length) {
-  uint16_t crc = 0xFFFF;
-  for (size_t i = 0; i < length; i++) {
-    crc ^= data[i] << 8;
-    for (int j = 0; j < 8; j++) {
-      if (crc & 0x8000) {
-        crc = (crc << 1) ^ 0x1021;
-      } else {
-        crc <<= 1;
-      }
-    }
-  }
-  return crc;
-}

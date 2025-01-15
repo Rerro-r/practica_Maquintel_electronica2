@@ -66,7 +66,6 @@ unsigned long lastLoRaSend = 0;  // Tiempo del último paquete LoRa enviado
 unsigned long timeBetweenPackets = 0;  // Tiempo entre el último y el actual envío de paquete
 
 char receivedData[256];
-char receivedDataSetup[256] = {0};
 int encoderType = 0;
 float beginReset = 0.0;
 float distanciaRecorrida = 0.0;
@@ -76,6 +75,9 @@ int ticksNecesarios = 0;
 float encoderRatio = 0.0; // medido en metros
 float distancia = 0.0;
 String runCommand = "";
+// Define los bytes de inicio y fin
+const uint8_t START_BYTE = 0xAA;
+const uint8_t END_BYTE = 0x55;
 //#########################################################
 
 void setup() {
@@ -120,9 +122,14 @@ int packetSize = 0;
 
 // Enviar el paquete indefinidamente hasta recibir una respuesta
 while (packetSize == 0) {
-  LoRa.beginPacket();
-  uint8_t request = 1; // Solicitud en formato binario (1: pedir configuración del encoder)
-  LoRa.write(request);
+  uint8_t bufferSetupSize = 3; // Inicio + ID + Longitud + Datos + Fin
+  uint8_t bufferSetup[bufferSetupSize];
+  bufferSetup[0] = START_BYTE;
+  bufferSetup[1] = 1; // ID del paquete
+  bufferSetup[2] = END_BYTE; // Longitud de los datos (sin inicio, ID, longitud ni fin)
+
+  LoRa.beginPacket();// Solicitud en formato binario (1: pedir configuración del encoder)
+  LoRa.write(bufferSetup, bufferSetupSize);
   LoRa.endPacket();
 
   Serial.println("Encoder pedido");
@@ -140,11 +147,11 @@ while (packetSize == 0) {
 Serial.println("Paquete recibido.");
 
 // Leer el paquete recibido en un buffer binario
-uint8_t buffer[256]; // Buffer para almacenar los datos recibidos
+uint8_t receivedDataSetup[256]; // Buffer para almacenar los datos recibidos
 int i = 0;
 
-while (LoRa.available() && i < sizeof(buffer)) {
-  buffer[i++] = LoRa.read();
+while (LoRa.available() && i < sizeof(receivedDataSetup)) {
+  receivedDataSetup[i++] = LoRa.read();
 }
 
 // Procesar los datos recibidos
@@ -154,19 +161,19 @@ int encoderType = 0;      // Entero para el tipo de encoder
 float encoderRatio = 0.0; // Flotante para el ratio del encoder
 
 // Leer y procesar el comando
-memcpy(runCommand, &buffer[offset], sizeof(runCommand) - 1);
+memcpy(runCommand, &receivedDataSetup[offset], sizeof(runCommand) - 1);
 runCommand[sizeof(runCommand) - 1] = '\0'; // Asegurar terminación de cadena
 offset += strlen(runCommand) + 1;          // Avanzar el puntero
 
 // Leer y procesar el tipo de encoder
 if (offset + sizeof(encoderType) <= i) {
-  memcpy(&encoderType, &buffer[offset], sizeof(encoderType));
+  memcpy(&encoderType, &receivedDataSetup[offset], sizeof(encoderType));
   offset += sizeof(encoderType);
 }
 
 // Leer y procesar el ratio del encoder
 if (offset + sizeof(encoderRatio) <= i) {
-  memcpy(&encoderRatio, &buffer[offset], sizeof(encoderRatio));
+  memcpy(&encoderRatio, &receivedDataSetup[offset], sizeof(encoderRatio));
   offset += sizeof(encoderRatio);
 }
 
@@ -311,15 +318,14 @@ void sendLoRaPacket() {
   //if (transmissionFinished) {
    // transmissionFinished = false;
     //Serial.println(_LeftEncoderTicks);
-    uint8_t buffer[10]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks y 2 bytes para batteryLevel
+    uint8_t buffer[9]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks y 2 bytes para batteryLevel
     long leftEncoderTicks;
     // Construir el paquete en el buffer
-    buffer[0] = 2; buffer[1] = PACKET_DATA_SIZE + PACKET_CRC_SIZE; memcpy(buffer + 2, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks)); memcpy(buffer + 6, &batteryLevel, sizeof(batteryLevel));
+    buffer[0] = START_BYTE; buffer[1] = 2; buffer[2] = PACKET_DATA_SIZE; 
+    memcpy(buffer + 3, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks));
+    memcpy(buffer + 3 + sizeof(_LeftEncoderTicks), &batteryLevel, sizeof(batteryLevel));
+    buffer[8] = END_BYTE;
   
-    // Calculate CRC (replace with your chosen CRC algorithm)
-    uint16_t crc = calculateCRC(buffer, PACKET_DATA_SIZE);
-    memcpy(buffer + 8, &crc, PACKET_CRC_SIZE);
-    Serial.println(crc);
     LoRa.beginPacket();
 
     // Enviar un identificador o encabezado (opcional)
@@ -373,19 +379,3 @@ void HandleLeftMotorInterruptA() {
 }
 
 // Implement a function to calculate CRC for the data portion of the packet
-uint16_t calculateCRC(uint8_t *data, size_t length) {
-  // ... (implement your chosen CRC algorithm)
-  // Example using CRC-16-CCITT:
-  uint16_t crc = 0xFFFF;
-  for (size_t i = 0; i < length; i++) {
-    crc ^= data[i] << 8;
-    for (int j = 0; j < 8; j++) {
-      if (crc & 0x8000) {
-        crc = (crc << 1) ^ 0x1021;
-      } else {
-        crc <<= 1;
-      }
-    }
-  }
-  return crc;
-}
