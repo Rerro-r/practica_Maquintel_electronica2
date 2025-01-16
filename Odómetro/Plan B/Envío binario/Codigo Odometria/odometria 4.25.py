@@ -296,6 +296,8 @@ def data_processing_loop():
                         data_queue.put(Distancia_str) 
                     if Bat_int <= 10:
                         mensaje_error.config(text="Advertencia: Queda poca batería")
+                    else:
+                        mensaje_error.config(text="")
 
                     if Bat_int != bat_int_anterior:
                         Bat_str = f"{Bat_int}"
