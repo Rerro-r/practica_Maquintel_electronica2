@@ -53,12 +53,11 @@ unsigned long lastLoRaPacketSent = 0;
 int batteryLevel = 0;  // Almacenará el nivel de batería
 unsigned long lastLoRaSend = 0;  // Tiempo del último paquete LoRa enviado
 unsigned long timeBetweenPackets = 0;  // Tiempo entre el último y el actual envío de paquete
-char receivedData[256];
-char receivedDataSetup[256] = {0};
-int encoderType = 0;
+char receivedData[256] = {0};
+int encoderType = 0; // 2 bytes
 bool stopSending = false;
-float encoderRatio = 0.0; // medido en metros
-String runCommand = "";
+float encoderRatio = 0.0; // medido en metros 4 bytes
+String runCommandInit = "";
 //#########################################################
 void setup() {
   Serial.begin(115200);
@@ -106,32 +105,29 @@ while (packetSize == 0) {
 }
 Serial.println("Paquete recibido.");
 // Leer el paquete recibido en un buffer binario
-uint8_t buffer[256]; // Buffer para almacenar los datos recibidos
+uint8_t bufferInit[11]; // Buffer para almacenar los datos recibidos
 int i = 0;
-while (LoRa.available() && i < sizeof(buffer)) {
-  buffer[i++] = LoRa.read();
+while (LoRa.available() && i < sizeof(bufferInit)) {
+  bufferInit[i++] = LoRa.read();
 }
 // Procesar los datos recibidos
-int offset = 0;
-char runCommand[32];      // Cadena para el comando recibido
-int encoderType = 0;      // Entero para el tipo de encoder
-float encoderRatio = 0.0; // Flotante para el ratio del encoder
+int offsetInit = 1;
+char runCommandInit[4] = {0};      // Cadena para el comando recibido
 // Leer y procesar el comando
-memcpy(runCommand, &buffer[offset], sizeof(runCommand) - 1);
-runCommand[sizeof(runCommand) - 1] = '\0'; // Asegurar terminación de cadena
-offset += strlen(runCommand) + 1;          // Avanzar el puntero
+memcpy(runCommandInit, &bufferInit[offsetInit], sizeof(runCommandInit));
+offsetInit += sizeof(runCommandInit);          // Avanzar el puntero
 // Leer y procesar el tipo de encoder
-if (offset + sizeof(encoderType) <= i) {
-  memcpy(&encoderType, &buffer[offset], sizeof(encoderType));
-  offset += sizeof(encoderType);
+if (offsetInit + sizeof(encoderType) <= i) {
+  memcpy(&encoderType, &bufferInit[offsetInit], sizeof(encoderType));
+  offsetInit += sizeof(encoderType);
 }
 // Leer y procesar el ratio del encoder
-if (offset + sizeof(encoderRatio) <= i) {
-  memcpy(&encoderRatio, &buffer[offset], sizeof(encoderRatio));
-  offset += sizeof(encoderRatio);
+if (offsetInit + sizeof(encoderRatio) <= i) {
+  memcpy(&encoderRatio, &bufferInit[offsetInit], sizeof(encoderRatio));
+  offsetInit += sizeof(encoderRatio);
 }
 // Mostrar los valores procesados
-Serial.println("Comando recibido: " + String(runCommand));
+Serial.println("Comando recibido: " + String(runCommandInit));
 Serial.println("Tipo de encoder recibido: " + String(encoderType));
 Serial.println("Ratio del encoder recibido: " + String(encoderRatio));
  
@@ -161,7 +157,7 @@ void loop() {
       // Enviar datos por LoRa
   if (currentMillis - lastLoRaSend >= 33) {
     //if (currentMillis - lastLoRaSend != 61) {
-     // Serial.println(currentMillis - lastLoRaSend);
+  //  Serial.println(currentMillis - lastLoRaSend);
    //// }
     sendLoRaPacket();
     lastLoRaSend = currentMillis;
@@ -251,30 +247,29 @@ void askCommand() {
   //}
 // Envía datos por LoRa
 void sendLoRaPacket() {
-  uint8_t buffer[7]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
+  uint8_t buffer[7] = {0}; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
   // Construir el paquete en el buffer
   uint8_t bat8 = (uint8_t)batteryLevel;
   buffer[0] = 2;
   memcpy(buffer + 1, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks));
-  memcpy(buffer + 4, &bat8, sizeof(bat8));
+  memcpy(buffer + 5, &bat8, sizeof(bat8));
 
-  long leftEncoderTicks;
+  long leftEncoderTicks = 0;
   memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
   Serial.println(leftEncoderTicks);
 
   // 2) Calculamos el XOR de los primeros 6 bytes
   // 3) Guardamos el XOR en el byte 4
-  buffer[6] = xorChecksum(buffer); 
+  buffer[6] = xorChecksum(buffer, sizeof(buffer)); 
+
+//  uint8_t check = 0;
+//  memcpy(&check, buffer + 6, sizeof(check));
+//  Serial.println(check);
 
   LoRa.beginPacket();
   // Enviar un identificador o encabezado (opcional)
   LoRa.write(buffer, sizeof(buffer)); // Escribir el buffer completo
   LoRa.endPacket();
-  // Calcular el tiempo de envío
-  //unsigned long time = millis();
-  //Serial.println(time - lastLoRaSend);
-  //lastLoRaSend = millis();
-//  }
 }
 void onTxDone() {
   transmissionFinished = true;
@@ -309,7 +304,7 @@ void HandleLeftMotorInterruptA() {
   #endif
 }
 
-uint8_t xorChecksum(uint8_t buffer){
+uint8_t xorChecksum(uint8_t* buffer, int len){
   uint8_t sum = 0;
   for (int i = 0; i < 6; i++) {
       sum ^= buffer[i];
