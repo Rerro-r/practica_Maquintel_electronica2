@@ -144,6 +144,7 @@ void handleLoRaData(int packetSize) {
     LoRa.write(buffer, bufferSize);
     LoRa.endPacket();
 
+  //Se decide hacer checksum del index y los ticks únicamente. Si el batteryLevel se envía mal no es problema 
   } else if (indexQuestion == 2) {
     int offset = 1;
     memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
@@ -195,7 +196,7 @@ void handleSerialData() {
 
 uint8_t xorChecksum(uint8_t* buffer, int len){
   uint8_t sum = 0;
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 5; i++) {
       sum ^= buffer[i];
   }
   return sum;

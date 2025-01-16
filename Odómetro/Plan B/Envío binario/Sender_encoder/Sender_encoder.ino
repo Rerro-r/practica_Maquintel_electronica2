@@ -246,7 +246,8 @@ void askCommand() {
    // return false;
   //}
 // Envía datos por LoRa
-void sendLoRaPacket() {
+//Se decide hacer checksum del index y los ticks únicamente. Si el batteryLevel se envía mal no es problema 
+  void sendLoRaPacket() {
   uint8_t buffer[7] = {0}; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
   // Construir el paquete en el buffer
   uint8_t bat8 = (uint8_t)batteryLevel;
@@ -254,9 +255,9 @@ void sendLoRaPacket() {
   memcpy(buffer + 1, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks));
   memcpy(buffer + 5, &bat8, sizeof(bat8));
 
-  long leftEncoderTicks = 0;
-  memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
-  Serial.println(leftEncoderTicks);
+  //long leftEncoderTicks = 0;
+  //memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
+  //Serial.println(leftEncoderTicks);
 
   // 2) Calculamos el XOR de los primeros 6 bytes
   // 3) Guardamos el XOR en el byte 4
@@ -306,7 +307,7 @@ void HandleLeftMotorInterruptA() {
 
 uint8_t xorChecksum(uint8_t* buffer, int len){
   uint8_t sum = 0;
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 5; i++) {
       sum ^= buffer[i];
   }
   return sum;
