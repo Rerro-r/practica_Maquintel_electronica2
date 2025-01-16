@@ -4,12 +4,13 @@
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
 #include <LoRa.h>
+#include <mySD.h>
 //########################### LORA ##############################
 #define SCK     5    // GPIO5  -- SCK
 #define MISO    19   // GPIO19 -- MISO
 #define MOSI    27   // GPIO27 -- MOSI
 #define SS      18   // GPIO18 -- CS
-#define RST     23   // GPIO14 -- RESET (If Lora does not work, replace it with GPIO14)
+#define RST     14   // GPIO14 -- RESET (If Lora does not work, replace it with GPIO14)
 #define DI0     26   // GPIO26 -- IRQ(Interrupt Request)
 #define BAND    868E6
 String rssi = "RSSI --";
@@ -44,6 +45,20 @@ const float minBatteryVoltage = 5.0; // Voltaje mínimo de la batería considera
 const float maxBatteryVoltage = 8.0; // Voltaje máximo de la batería considerada llena
 const int numReadings = 10; 
 //#########################################################
+
+//################ SD #####################################
+#define  SD_CLK     17
+#define  SD_MISO    13
+#define  SD_MOSI    12
+#define  SD_CS      23
+
+#define  Select    LOW   //  Low CS means that SPI device Selected
+#define  DeSelect  HIGH  //  High CS means that SPI device Deselected
+
+File root;
+File sessionFile;
+//#########################################################
+
 //########################## Variables #############################
 unsigned long lastDisplayUpdate = 0;  // Tiempo del último update de pantalla
 unsigned long lastBatteryUpdate = 0;  // Tiempo del último cálculo de batería
@@ -139,7 +154,21 @@ Serial.println("Ratio del encoder recibido: " + String(encoderRatio));
   attachInterrupt(digitalPinToInterrupt(c_LeftEncoderPinA), HandleLeftMotorInterruptA, RISING);
   //#########################################################
   LoRa.receive();
-}
+
+//######################## SD ##############################
+  Serial.print("Initializing SD card...");
+    pinMode(SD_CS, OUTPUT);
+
+    if (!SD.begin(chipSelect)) {
+      Serial.println("initialization failed!");
+      return;
+    }
+    Serial.println("initialization done.");
+  }
+
+//###########################################################
+
+
 void loop() {
   unsigned long currentMillis = millis();
   // Actualizar la pantalla OLED cada segundo
@@ -161,6 +190,8 @@ void loop() {
    //// }
     sendLoRaPacket();
     lastLoRaSend = currentMillis;
+    writeAnything();
+    readAnything();
   //  }
   }
 }
@@ -311,4 +342,36 @@ uint8_t xorChecksum(uint8_t* buffer, int len){
       sum ^= buffer[i];
   }
   return sum;
+}
+
+void writeAnything() {
+  // Open the file for writing (overwrite existing content)
+  myFile = SD.open("test.csv", F_APPEND); 
+  //Si en lugar de sobrescribir el archivo quieres añadir datos al final 
+  //del mismo en cada iteración del bucle, debes usar el modo F_APPEND
+  // en lugar de FILE_WRITE.
+
+  if (myFile) {
+    myFile.println("any," + String(_LeftEncoderTicks));
+    myFile.close();
+  } else {
+    Serial.println("error opening test.txt");
+  }
+}
+
+void readAnything(){
+  myFile = SD.open("test.csv");
+  if (myFile) {
+    Serial.println("Contenido de test.csv:");
+    while (myFile.available()) {
+      String line = myFile.readStringUntil('\n');
+      line.trim(); // Elimina espacios en blanco al inicio y final
+      if (line.length() > 0) { // Evita imprimir líneas vacías
+        Serial.println(line);
+      }
+    }
+    myFile.close();
+  } else {
+    Serial.println("Error al abrir test.csv para lectura");
+  }
 }
