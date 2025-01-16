@@ -40,7 +40,7 @@ const float adcResolution = 4095.0;
 const float referenceVoltage = 3.3;
 const float voltageDividerRatio = 0.41; // Ajustar según tu divisor de voltaje
 // Constantes para el mapeo del porcentaje de la batería
-const float minBatteryVoltage = 3.3; // Voltaje mínimo de la batería considerada vacía
+const float minBatteryVoltage = 5.0; // Voltaje mínimo de la batería considerada vacía
 const float maxBatteryVoltage = 8.0; // Voltaje máximo de la batería considerada llena
 const int numReadings = 10; 
 //#########################################################
@@ -56,13 +56,8 @@ unsigned long timeBetweenPackets = 0;  // Tiempo entre el último y el actual en
 char receivedData[256];
 char receivedDataSetup[256] = {0};
 int encoderType = 0;
-float beginReset = 0.0;
-float distanciaRecorrida = 0.0;
-bool reset = false;
 bool stopSending = false;
-int ticksNecesarios = 0;
 float encoderRatio = 0.0; // medido en metros
-float distancia = 0.0;
 String runCommand = "";
 //#########################################################
 void setup() {
@@ -79,7 +74,7 @@ void setup() {
   Serial.println("LoRa Sender Test");
   SPI.begin(SCK,MISO,MOSI,SS);
   LoRa.setPins(SS,RST,DI0);
-  if (!LoRa.begin(868E6)) {
+  if (!LoRa.begin(BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
@@ -91,7 +86,7 @@ void setup() {
     Serial.println("Esperando a que LoRa esté listo para enviar...");
     delay(100);  // Esperar 100ms antes de intentar nuevamente
   }
-  delay(7000);
+  delay(3000);
   // Una vez LoRa esté listo, enviar el paquete
 int packetSize = 0;
 // Enviar el paquete indefinidamente hasta recibir una respuesta
@@ -157,14 +152,14 @@ void loop() {
     updateOLED();
     lastDisplayUpdate = currentMillis;
   }
-  // Actualizar el nivel de batería cada 60 segundos
-  if (currentMillis - lastBatteryUpdate >= 120000) {
+  // Actualizar el nivel de batería cada 30 segundos
+  if (currentMillis - lastBatteryUpdate >= 30000) {
     batteryLevel = getBatteryLevel();
     lastBatteryUpdate = currentMillis;
   }
 //  if (stopSending == false) {
       // Enviar datos por LoRa
-  if (currentMillis - lastLoRaSend >= 30) {
+  if (currentMillis - lastLoRaSend >= 33) {
     //if (currentMillis - lastLoRaSend != 61) {
      // Serial.println(currentMillis - lastLoRaSend);
    //// }
@@ -256,24 +251,29 @@ void askCommand() {
   //}
 // Envía datos por LoRa
 void sendLoRaPacket() {
-  //if (transmissionFinished) {
-   // transmissionFinished = false;
-    //Serial.println(_LeftEncoderTicks);
-    uint8_t buffer[7]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks y 2 bytes para batteryLevel
-    // Construir el paquete en el buffer
-    buffer[0] = 2; memcpy(buffer + 1, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks)); memcpy(buffer + 5, &batteryLevel, sizeof(batteryLevel));
-    long leftEncoderTicks;
-        // Extraer leftEncoderTicks (4 bytes)
-    memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
-    Serial.println(leftEncoderTicks);
-    LoRa.beginPacket();
-    // Enviar un identificador o encabezado (opcional)
-    LoRa.write(buffer, sizeof(buffer)); // Escribir el buffer completo
-    LoRa.endPacket();
-    // Calcular el tiempo de envío
-    //unsigned long time = millis();
-    //Serial.println(time - lastLoRaSend);
-    //lastLoRaSend = millis();
+  uint8_t buffer[7]; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
+  // Construir el paquete en el buffer
+  uint8_t bat8 = (uint8_t)batteryLevel;
+  buffer[0] = 2;
+  memcpy(buffer + 1, &_LeftEncoderTicks, sizeof(_LeftEncoderTicks));
+  memcpy(buffer + 4, &bat8, sizeof(bat8));
+
+  long leftEncoderTicks;
+  memcpy(&leftEncoderTicks, buffer + 1, sizeof(leftEncoderTicks));
+  Serial.println(leftEncoderTicks);
+
+  // 2) Calculamos el XOR de los primeros 6 bytes
+  // 3) Guardamos el XOR en el byte 4
+  buffer[6] = xorChecksum(buffer); 
+
+  LoRa.beginPacket();
+  // Enviar un identificador o encabezado (opcional)
+  LoRa.write(buffer, sizeof(buffer)); // Escribir el buffer completo
+  LoRa.endPacket();
+  // Calcular el tiempo de envío
+  //unsigned long time = millis();
+  //Serial.println(time - lastLoRaSend);
+  //lastLoRaSend = millis();
 //  }
 }
 void onTxDone() {
@@ -297,7 +297,7 @@ void readCommand() {
 */
 int getBatteryLevel() {
   float voltage = (analogRead(batteryPin) / adcResolution) * referenceVoltage / voltageDividerRatio;
-  int percentage = map(voltage * 100, 330, 800, 0, 100);
+  int percentage = map(voltage * 100, 500, 800, 0, 100);
   return constrain(percentage, 0, 100);
 }
 void HandleLeftMotorInterruptA() {
@@ -307,4 +307,12 @@ void HandleLeftMotorInterruptA() {
   #else
     _LeftEncoderTicks -= _LeftEncoderBSet ? -1 : +1;
   #endif
+}
+
+uint8_t xorChecksum(uint8_t buffer){
+  uint8_t sum = 0;
+  for (int i = 0; i < 6; i++) {
+      sum ^= buffer[i];
+  }
+  return sum;
 }

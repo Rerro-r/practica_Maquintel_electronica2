@@ -20,14 +20,15 @@ unsigned long previousMillis = 0;  // Tiempo entre paquetes
 unsigned long lastOledUpdate = 0;  // Control de actualización OLED
 //unsigned long lastPrintMillis = 0;  // Control de impresión en Serial Monitor
 char receivedData[7] = {0};  // Buffer para datos del paquete
-int batteryLevel = 0;
+uint8_t batteryLevel = 0;
+uint8_t batteryLevelAnt = 0;
 long leftEncoderTicks = 0;
-float distanciaRecorrida = 0.0;
+long leftEncoderTicksAnt = 0;
 int indexQuestion = 0;
 float encoderRatio = 0.0;
 int encoderType = 0;
-float beginReset = 0.0;
 String runCommand = "";
+
 void setup() {
   Serial.begin(115200);
   while (!Serial);
@@ -127,22 +128,11 @@ void loop() {
 // Manejo de datos del LoRa
 void handleLoRaData(int packetSize) {
   memset(receivedData, 0, sizeof(receivedData));
-  if (packetSize <= sizeof(receivedData)) { // Si el paquete tiene 7 bytes o menos
-    int i = 0;
-    while (LoRa.available()) {
-      receivedData[i++] = LoRa.read();
-    }
-   // receivedData[i] = '\0'; // Terminar la cadena
-  } else { // Si el paquete tiene más de 7 bytes
-    // Descartar los primeros bytes
-    for (int i = 0; i < packetSize - sizeof(receivedData); i++) {
-      LoRa.read(); // Leer y descartar
-    }
-    // Leer los últimos 7 bytes
-    LoRa.readBytes(receivedData, sizeof(receivedData));
-  //  receivedData[sizeof(receivedData)] = '\0'; // Asegurar terminación nula
-  }
+  if (packetSize <= sizeof(receivedData)) { 
+    LoRa.readBytes(receivedData, sizeof(receivedData));}
+
   int indexQuestion = receivedData[0];  // Determinar tipo de pregunta
+
   if (indexQuestion == 1) {
     // Enviar configuración del encoder en binario por LoRa
     int bufferSize = 1 + runCommand.length() + 1 + sizeof(encoderRatio);
@@ -156,17 +146,25 @@ void handleLoRaData(int packetSize) {
     // Enviar el buffer completo
     LoRa.write(buffer, bufferSize);
     LoRa.endPacket();
+
   } else if (indexQuestion == 2) {
-    // Procesar datos binarios del paquete recibido
-    int offset = 1; // Comenzar después del índice de pregunta
-    // Leer leftEncoderTicks (4 bytes - tipo `long`)
-   // long leftEncoderTicks;
+    int offset = 1;
     memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
     offset += sizeof(leftEncoderTicks);
     // Leer batteryLevel (1 byte - tipo `int`)
-    batteryLevel = (int)receivedData[offset];
+    batteryLevel = (uint8_t)receivedData[offset];
     offset += sizeof(uint8_t);
-    Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+    uint8_t checkSumVerificated = xorChecksum(receivedData);
+    if (checkSumVerificated == receivedData[offset]){
+      Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+      leftEncoderTicksAnt = leftEncoderTicks;
+      batteryLevelAnt = batteryLevel;
+    } else {
+      leftEncoderTicks = leftEncoderTicksAnt;
+      batteryLevel = batteryLevelAnt;
+      Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+    }
+
   } else if (indexQuestion == 3){
      // Responder al comando recibido
     int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string
@@ -194,31 +192,13 @@ void handleSerialData() {
     display.display();
   }
 }
-/*
-// Actualización del OLED
-void updateOLED() {
-  char buffer[20]; // Buffer para almacenar la cadena formateada (tamaño suficiente para un long)
-  char buffer2[15];
-// Formatear la cadena
-  snprintf(buffer, sizeof(buffer), "T: %d", leftEncoderTicks); // %ld para long
- // Buffer para la cadena formateada (ajusta el tamaño si es necesario)
-  snprintf(buffer2, sizeof(buffer), "Bat: %d%%", batteryLevel); // %% para imprimir un % literal
-  display.clearDisplay();
-  display.setCursor(0, 8);
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  if (batteryLevel < 20) {
-    display.println("Bat baja!");
-  } else {
-    display.println(buffer2);
+
+uint8_t xorChecksum(uint8_t buffer){
+  uint8_t sum = 0;
+  for (int i = 0; i < 6; i++) {
+      sum ^= buffer[i];
   }
-  display.setCursor(0, 16);
-  display.println(buffer);
-//  display.setCursor(0, 23);
- // display.print("Encoder: ");
- // display.print(encoderType);
- // display.print(",");
- // display.println(encoderRatio);
-  display.display();
+  return sum;
 }
-*/
+
+
