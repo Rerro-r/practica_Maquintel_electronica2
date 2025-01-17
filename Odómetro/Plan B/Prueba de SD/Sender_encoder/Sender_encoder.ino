@@ -1,10 +1,15 @@
+#ifndef RH_PLATFORM_ESP32 // Evitar incluir RH_ASK en ESP32
+#include <RH_ASK.h>
+#endif
+
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
-#include <LoRa.h>
-#include <mySD.h>
+#include <SD.h>
+#include <RH_RF95.h>
+#include <RHSoftwareSPI.h>
 //########################### LORA ##############################
 #define SCK     5    // GPIO5  -- SCK
 #define MISO    19   // GPIO19 -- MISO
@@ -13,9 +18,17 @@
 #define RST     14   // GPIO14 -- RESET (If Lora does not work, replace it with GPIO14)
 #define DI0     26   // GPIO26 -- IRQ(Interrupt Request)
 #define BAND    868E6
+#define LORA_FREQ 868.0
+#define LOG_PATH "/lora_recv.log"
+
 String rssi = "RSSI --";
 String packSize = "--";
 String packet ;
+
+// Use a virtual (software) SPI bus for the sx1278
+RHSoftwareSPI sx1278_spi;
+RH_RF95 rf95(SS, DI0, sx1278_spi);
+
 volatile bool transmissionFinished = true; // Variable volátil para la interrupción
 //#########################################################
 //########################### OLED ##############################
@@ -52,11 +65,7 @@ const int numReadings = 10;
 #define  SD_MOSI    12
 #define  SD_CS      23
 
-#define  Select    LOW   //  Low CS means that SPI device Selected
-#define  DeSelect  HIGH  //  High CS means that SPI device Deselected
-
-File root;
-File sessionFile;
+SPIClass sd_spi(HSPI);
 //#########################################################
 
 //########################## Variables #############################
@@ -73,6 +82,8 @@ int encoderType = 0; // 2 bytes
 bool stopSending = false;
 float encoderRatio = 0.0; // medido en metros 4 bytes
 String runCommandInit = "";
+SDFile myFile;
+
 //#########################################################
 void setup() {
   Serial.begin(115200);
@@ -86,21 +97,46 @@ void setup() {
   while (!Serial);
   Serial.println();
   Serial.println("LoRa Sender Test");
-  SPI.begin(SCK,MISO,MOSI,SS);
-  LoRa.setPins(SS,RST,DI0);
-  if (!LoRa.begin(BAND)) {
-    Serial.println("Starting LoRa failed!");
-    while (1);
-  }
+//  SPI.begin(SCK,MISO,MOSI,SS);
+// FALTA INIT LORA
+  pinMode(RST, OUTPUT);
+  digitalWrite(RST, LOW);
+  delay(100);
+  digitalWrite(RST, HIGH);
+
+  sx1278_spi.setPins(MISO, MOSI, SCK);
+
+  if (!rf95.init()){ 
+      Serial.println("LoRa Radio: init failed.");
+  }else{
+      Serial.println("LoRa Radio: init OK!");}
+
+  // LoRa: set frequency
+  if (!rf95.setFrequency(LORA_FREQ)){
+      Serial.println("LoRa Radio: setFrequency failed.");
+  }else{
+      Serial.printf("LoRa Radio: freqency set to %f MHz\n", LORA_FREQ);}
+
+  rf95.setModemConfig(RH_RF95::Bw125Cr45Sf128);
+
+  // LoRa: Set max (23 dbm) transmission power. 
+  rf95.setTxPower(23, false);
+
+  // SD Card
+  sd_spi.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+
+  if (!SD.begin(SD_CS, sd_spi)){
+      Serial.println("SD Card: mounting failed.");
+  }else{ 
+      Serial.println("SD Card: mounted.");}
+
+
+}
   //LoRa.onTxDone(onTxDone);
   //#########################################################
   //############# Petición y espera de datos de encoder ######
 // Esperar hasta que LoRa esté listo para transmitir
-  while (!LoRa.beginPacket()) {  // Bucle hasta que LoRa esté listo
-    Serial.println("Esperando a que LoRa esté listo para enviar...");
-    delay(100);  // Esperar 100ms antes de intentar nuevamente
-  }
-  delay(3000);
+/*
   // Una vez LoRa esté listo, enviar el paquete
 int packetSize = 0;
 // Enviar el paquete indefinidamente hasta recibir una respuesta
@@ -167,6 +203,7 @@ Serial.println("Ratio del encoder recibido: " + String(encoderRatio));
   }
 
 //###########################################################
+*/
 
 
 void loop() {
@@ -297,11 +334,7 @@ void askCommand() {
 //  uint8_t check = 0;
 //  memcpy(&check, buffer + 6, sizeof(check));
 //  Serial.println(check);
-
-  LoRa.beginPacket();
-  // Enviar un identificador o encabezado (opcional)
-  LoRa.write(buffer, sizeof(buffer)); // Escribir el buffer completo
-  LoRa.endPacket();
+  rf95.send(buffer, sizeof(buffer));
 }
 void onTxDone() {
   transmissionFinished = true;
@@ -346,7 +379,7 @@ uint8_t xorChecksum(uint8_t* buffer, int len){
 
 void writeAnything() {
   // Open the file for writing (overwrite existing content)
-  myFile = SD.open("test.csv", F_APPEND); 
+  myFile = SD.open("test.csv", FILE_APPEND); 
   //Si en lugar de sobrescribir el archivo quieres añadir datos al final 
   //del mismo en cada iteración del bucle, debes usar el modo F_APPEND
   // en lugar de FILE_WRITE.
@@ -375,3 +408,4 @@ void readAnything(){
     Serial.println("Error al abrir test.csv para lectura");
   }
 }
+

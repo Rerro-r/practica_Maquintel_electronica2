@@ -1,7 +1,13 @@
+#ifndef RH_PLATFORM_ESP32 // Evitar incluir RH_ASK en ESP32
+#include <RH_ASK.h>
+#endif
+
 #include <Adafruit_SSD1306.h>
 #include <SPI.h>
-#include <LoRa.h>
 #include <Wire.h>
+#include <Arduino.h>
+#include <RH_RF95.h>
+#include <RHSoftwareSPI.h>
 //########################### OLED ##############################
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 32
@@ -16,6 +22,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define RST     23
 #define DI0     26
 #define BAND    868E6
+
+#define LORA_FREQ 868.0
+
+#define LOG_PATH "/lora_recv.log"
+
 unsigned long previousMillis = 0;  // Tiempo entre paquetes
 unsigned long lastOledUpdate = 0;  // Control de actualización OLED
 //unsigned long lastPrintMillis = 0;  // Control de impresión en Serial Monitor
@@ -29,27 +40,44 @@ float encoderRatio = 0.0;
 int encoderType = 0;
 char runCommandInit[4] = {0};
 char runCommand[5] = {0};
+uint8_t len = sizeof(receivedData);
+
+// Use a virtual (software) SPI bus for the sx1278
+RHSoftwareSPI sx1278_spi;
+RH_RF95 rf95(SS, DI0, sx1278_spi);
 
 void setup() {
   Serial.begin(115200);
   while (!Serial);
   Serial.println("LoRa Receiver Optimized");
-  SPI.begin(SCK, MISO, MOSI, SS);
-  LoRa.setPins(SS, RST, DI0);
-  //LoRa.setSignalBandwidth(500E3);
-  if (!LoRa.begin(BAND)) {
-    Serial.println("Starting LoRa failed!");
-    while (1);
-  }
-  // Configuración de LoRa para ajustar el rendimiento
-  //LoRa.setSpreadingFactor(7);  // Comúnmente 7-12, prueba con 7 para mayor velocidad
-  //LoRa.setSignalBandwidth(125E3);  // Ancho de banda de 125 kHz
-  //LoRa.setCodingRate4(5);  // Tasa de codificación 4/5
-  LoRa.receive();
-  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println("SSD1306 allocation failed");
-    for (;;);
-  }
+//  SPI.begin(SCK, MISO, MOSI, SS);
+
+
+  // LoRa: Init
+  pinMode(RST, OUTPUT);
+  digitalWrite(RST, LOW);
+  delay(100);
+  digitalWrite(RST, HIGH);
+
+  // the pins for the virtual SPI explicitly to the internal connection
+  sx1278_spi.setPins(MISO, MOSI, SCK);
+
+  if (!rf95.init()) 
+      Serial.println("LoRa Radio: init failed.");
+  else
+      Serial.println("LoRa Radio: init OK!");
+
+  // LoRa: set frequency
+  if (!rf95.setFrequency(LORA_FREQ))
+      Serial.println("LoRa Radio: setFrequency failed.");
+  else
+      Serial.printf("LoRa Radio: freqency set to %f MHz\n", LORA_FREQ);
+
+  rf95.setModemConfig(RH_RF95::Bw125Cr45Sf128);
+
+  // LoRa: Set max (23 dbm) transmission power. 
+  rf95.setTxPower(23, false);
+
   
   display.clearDisplay();
   display.display();
@@ -103,9 +131,27 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();  // Obtener tiempo actual
   // Revisar datos del puerto LoRa
-  int packetSize = LoRa.parsePacket();
-  if (packetSize) {
-    handleLoRaData(packetSize);
+  if (rf95.recv(receivedData, &len)) {
+    int offset = 1;
+    memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
+    offset += sizeof(leftEncoderTicks);
+    // Leer batteryLevel (1 byte - tipo `int`)
+    batteryLevel = (uint8_t)receivedData[offset];
+    offset += sizeof(uint8_t);
+    uint8_t checkSumVerificated = xorChecksum(receivedData, sizeof(receivedData));
+    if (checkSumVerificated == receivedData[offset]){
+      leftEncoderTicksAnt = leftEncoderTicks;
+      batteryLevelAnt = batteryLevel;
+    } else {
+      //Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+      leftEncoderTicks = leftEncoderTicksAnt;
+      batteryLevel = batteryLevelAnt;
+      //Serial.println("no coinciden");
+      //Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+    }
+    Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
+    //Serial.println(String(receivedData[offset]) + "," + String(checkSumVerificated));
+
   }
   // Revisar datos del puerto Serial
   if (Serial.available() > 0) {
@@ -122,6 +168,7 @@ void loop() {
     //lastPrintMillis = currentMillis;
   //}
 //}
+/*
 // Manejo de datos del LoRa
 void handleLoRaData(int packetSize) {
   memset(receivedData, 0, sizeof(receivedData));
@@ -179,6 +226,7 @@ void handleLoRaData(int packetSize) {
     //LoRa.endPacket();
   }
 }
+*/
 // Manejo de datos del Serial
 void handleSerialData() {
   String data = Serial.readString();
