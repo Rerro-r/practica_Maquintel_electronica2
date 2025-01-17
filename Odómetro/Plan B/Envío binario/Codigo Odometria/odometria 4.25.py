@@ -24,13 +24,13 @@ data_queue = None
 data_thread = None
 data2_queue = None
 Bat_str = "00"
-Distancia_str = "+0000.0"
+Distancia_str = "+0000.00"
 reset_activado = False
 
 CONSTANTES_ODOMETRO = {
     "Guia de cable": 0.0372 * 3.1416 / 1024,
     "Carrete": 0.0225 * 3.1416 * 1.0216 / 1024,
-    "Personalizado": None  # Se calculará dinámicamente
+    "Personalizado": None
 }
 
 current_file_path = os.path.abspath(__file__)
@@ -59,7 +59,7 @@ def actualizar_puertos(*args):
             port_imu["values"] = puertos_disponibles
 
 
-def leer_imu(puerto_imu): #funcion para leer el IMU
+def leer_imu(puerto_imu):
     salto_de_linea = 0
     imu = ""
     if puerto_imu: # verificar que el puerto exista
@@ -73,7 +73,7 @@ def leer_imu(puerto_imu): #funcion para leer el IMU
         puerto_imu.write("OK".encode('utf-8'))
     return imu
 
-def procesar_imu(imu_data): #funcion para procesar los datos del imu
+def procesar_imu(imu_data):
     acelerometro = [0, 0, 0, 0, 0, 0]
     magnetometro = [0, 0, 0, 0, 0, 0]
     giroscopio = [0, 0, 0, 0, 0, 0]
@@ -101,15 +101,15 @@ def desconectar():
     envio_encoder = True
     habilitar_botones(True, False, False)
     mensaje = "STOP"
-    if data_thread and data_thread.is_alive(): #esperar a que el hilo termine
+    if data_thread and data_thread.is_alive():
         Estado = 0
-        data_thread.join(timeout=0.1) # esperar que el hilo termine
+        data_thread.join(timeout=0.1) # cierra el hilo luego de un tiempo máximo de espera
         print("Hilo de procesamiento detenido.")
         if puertoSerial_c != None:
             puertoSerial_c.write(mensaje.encode('utf-8'))
     if puertoSerial_c != None:
         cerrar_puerto(puertoSerial_c, "Receptor Encoder") # Cerrar el puerto serial
-        puertoSerial_c = None # importante setear a none para que se pueda volver a abrir
+        puertoSerial_c = None # importante setear a None para que se pueda volver a abrir
 
 
 def reset():
@@ -148,7 +148,7 @@ def conexion():
 
     with open(nombre_archivo, "w", newline="") as file:
         writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
-        writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
+        writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "Giroscopio", "Acelerómetro", "Magnetrómetro"])
 
     if port_lista.get() and odometro_lista.get():
         if selec_imu.get():
@@ -179,12 +179,10 @@ def conexion():
         elif odometro_lista.get() == "Personalizado":
             encoder_type = 3
             try:
-                # Intentar convertir el valor ingresado a float
                 encoder_ratio = float(input_ratio.get())  # Si es válido, se guarda en begin_reset
                 envio_encoder = True
                 constante = encoder_ratio * 3.1416 / 1024
             except ValueError:
-                # Si ocurre un error al intentar convertir a float, muestra un mensaje de error
                 mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
 
         texto_error = mensaje_error.cget("text")
@@ -196,22 +194,18 @@ def conexion():
             if envio_encoder:
                 if envio_encoder_listo: 
                     mensaje = f"RUN"
-                    #print(mensaje)
                     puertoSerial_c.write(mensaje.encode('utf-8'))
                     envio_encoder = False
                 else:# solo envía encoder una vez. Si se quiere cambiar de encoder se debe cerrar la aplicación
                     mensaje = f"RUN,{encoder_type},{encoder_ratio}"
-                    #print(mensaje)
                     puertoSerial_c.write(mensaje.encode('utf-8'))
                     envio_encoder = False
                     envio_encoder_listo = True
                 
-                    # Iniciar el bucle de procesamiento en un hilo separado
                 data_thread = threading.Thread(target=data_processing_loop)
-                data_thread.daemon = True #Para que el hilo se cierre cuando se cierra la ventana
+                data_thread.daemon = True # Para que el hilo se cierre cuando se cierra la ventana
                 data_thread.start()
                 update_gui()
-    
     
     else:
 
@@ -238,10 +232,10 @@ def data_processing_loop():
 
     with open(nombre_archivo, "w", newline="") as file:
         writer = csv.writer(file, delimiter=";", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
-        writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "GIROSCOPIO", "ACELEROMETRO", "MAGNETROMETRO"])
+        writer.writerow(["Hora Unix","Hora Local",  "Distancia", "Ticks", "Giroscopio", "Acelerómetro", "Magnetrómetro"])
     
     while Estado == 1:
-        start_time = time.perf_counter() #Para control de tiempo del ciclo
+        start_time = time.perf_counter() # Para control de tiempo del ciclo
         tipo_odometro = odometro_lista.get()
         Ti = ""
         salto_de_linea = 0
@@ -266,10 +260,10 @@ def data_processing_loop():
                     try:
                         data = Tics_bytes.decode().strip()
                         Ti_int, Bat_int = map(int, data.split(','))
-                        Ti_int = -1 * Ti_int #Decodifica, quita espacios y convierte a entero
-                    except ValueError: #Manejo de error si no se puede convertir a entero
+                        Ti_int = -1 * Ti_int
+                    except ValueError:
                         print(f"Error al convertir a entero: {Tics_bytes}")
-                        continue #Continua a la siguiente iteracion
+                        continue
                     if Ti_int != ticks_anteriores:
                         if abs(Ti_int - ti_ant) >= 50000:
                             print(Ti_int)
@@ -284,8 +278,8 @@ def data_processing_loop():
                         Distancia = round(Ticks * constante, 2)
                         Distancia_str = f"{Distancia:+08.2f}"
                         if Distancia_str != distancia_anterior_str:
-                            distancia_anterior_str = Distancia_str #Actualizar la distancia anterior
-                            ticks_anteriores = Ti_int #Actualizar los ticks anteriores
+                            distancia_anterior_str = Distancia_str 
+                            ticks_anteriores = Ti_int
                             data_queue.put(Distancia_str) 
                         if Bat_int <= 10:
                             mensaje_error.config(text="Advertencia: Queda poca batería")
@@ -299,13 +293,11 @@ def data_processing_loop():
                     
                     else:
                         if Distancia_str != distancia_anterior_str:
-                            distancia_anterior_str = Distancia_str #Actualizar la distancia anterior
+                            distancia_anterior_str = Distancia_str
                             data_queue.put(Distancia_str)
                         else:
                             Distancia_str = distancia_anterior_str
-                            Bat_str = f"{bat_int_anterior}"
-                    
-                        
+                            Bat_str = f"{bat_int_anterior}"                  
 
                 except UnicodeDecodeError:
                     print("Error de decodificación, ignorando los datos corruptos.")
@@ -332,7 +324,7 @@ def data_processing_loop():
 
 
 def update_gui():
-    ventana.after(0, update_gui_inner) #usar after para evitar bucle infinito
+    ventana.after(0, update_gui_inner)
 def update_gui_inner():
     global data_queue, data2_queue
     try:
@@ -347,12 +339,12 @@ def update_gui_inner():
         pass
     except tk.TclError:
         return
-    ventana.after(20, update_gui_inner) #actualizar cada 33ms
+    ventana.after(20, update_gui_inner)
 
 def on_closing():
     global Estado, puertoSerial_c, puertoSerial, puertoSerial_b
-    Estado = 0  # Asegura que los hilos terminen
-    time.sleep(0.5)  # Da más tiempo a los hilos para que terminen
+    Estado = 0  
+    time.sleep(0.5) 
     if puertoSerial_c:
         cerrar_puerto(puertoSerial_c, "Receptor Encoder")
     if puertoSerial:
@@ -364,9 +356,9 @@ def on_closing():
 def cerrar_puerto(puerto, nombre_puerto):
     if puerto:
         try:
-            if puerto.is_open: #Verifica si el puerto esta abierto antes de cerrarlo
+            if puerto.is_open:
                 puerto.flushInput()
-                puerto.flushOutput() #Agregado flushOutput
+                puerto.flushOutput()
                 puerto.close()
                 print(f"Puerto Serial {nombre_puerto} cerrado.")
             else:
@@ -375,8 +367,9 @@ def cerrar_puerto(puerto, nombre_puerto):
             print(f"Error al cerrar el puerto serial {nombre_puerto}: {e}")
 
 
+# Borra el mensaje de error cuando el usuario interactúa con un campo de entrada
 def limpiar_error(event):
-    mensaje_error.config(text="")  # Borra el mensaje de error cuando el usuario interactúa con un campo de entrada
+    mensaje_error.config(text="")
 
 def habilitar_botones(conectar_habilitado, reset_habilitado, desconectar_habilitado):
     """Habilita o deshabilita botones según el estado."""
