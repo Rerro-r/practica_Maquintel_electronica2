@@ -41,10 +41,7 @@ void setup() {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
-  // Configuración de LoRa para ajustar el rendimiento
-  //LoRa.setSpreadingFactor(7);  // Comúnmente 7-12, prueba con 7 para mayor velocidad
-  //LoRa.setSignalBandwidth(125E3);  // Ancho de banda de 125 kHz
-  //LoRa.setCodingRate4(5);  // Tasa de codificación 4/5
+
   LoRa.receive();
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println("SSD1306 allocation failed");
@@ -55,14 +52,9 @@ void setup() {
   display.display();
   Serial.println("Esperando datos por Serial...");
   String run_odometro_radio = ""; // Variable para almacenar el dato recibido
- /* // Mostrar mensaje de espera
-  display.setCursor(0, 23);
-  display.print("esperando datos...");
-  display.display(); // Mostrar mensaje en pantalla
-  */
   // Esperar hasta que llegue un dato por serial
   while (run_odometro_radio.length() == 0) {
-      // Mostrar mensaje de espera
+    // Mostrar mensaje de espera
     display.setCursor(0, 23);
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
@@ -90,7 +82,6 @@ void setup() {
       encoderType = run_odometro_radio.substring(comaIndex1 + 1, comaIndex2).toInt();
       encoderRatio = run_odometro_radio.substring(comaIndex2 + 1).toFloat();
     }
-  
   // Mostrar los resultados en el display
   display.clearDisplay();
   display.setCursor(0, 8);
@@ -112,16 +103,7 @@ void loop() {
     handleSerialData();
   }
 }
-  // Actualizar la pantalla OLED cada segundo
- // if (currentMillis - lastOledUpdate >= 1000) {
-  //  updateOLED();
-    //lastOledUpdate = currentMillis;
-  //}
-  // Actualizar mensajes periódicos, si aplica
- // if (currentMillis - lastPrintMillis >= 1000) {
-    //lastPrintMillis = currentMillis;
-  //}
-//}
+
 // Manejo de datos del LoRa
 void handleLoRaData(int packetSize) {
   memset(receivedData, 0, sizeof(receivedData));
@@ -132,14 +114,15 @@ void handleLoRaData(int packetSize) {
 
   if (indexQuestion == 1) {
     // Enviar configuración del encoder en binario por LoRa
-    int bufferSize = 1 + sizeof(runCommandInit) + 1 + sizeof(encoderRatio);
+    int bufferSize = 1 + sizeof(runCommandInit) + sizeof(encoderType) + sizeof(encoderRatio);
     uint8_t buffer[bufferSize]; // Buffer de tamaño variable
     // Construir el paquete en el buffer
     buffer[0] = 1; // Confirmación de recepción (como uint8_t)
     memcpy(buffer + 1, &runCommandInit, sizeof(runCommandInit)); // Copia el string
-    buffer[1 + sizeof(runCommandInit)] = (uint8_t)encoderType; // Copia el tipo de encoder
-    memcpy(buffer + 2 + sizeof(runCommandInit), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
+    buffer[1 + sizeof(runCommandInit)] = encoderType; // Copia el tipo de encoder
+    memcpy(buffer + 1 + sizeof(runCommandInit) + sizeof(encoderType), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
     LoRa.beginPacket();
+    Serial.println(bufferSize);
     // Enviar el buffer completo
     LoRa.write(buffer, bufferSize);
     LoRa.endPacket();
@@ -149,7 +132,7 @@ void handleLoRaData(int packetSize) {
     int offset = 1;
     memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
     offset += sizeof(leftEncoderTicks);
-    // Leer batteryLevel (1 byte - tipo `int`)
+    // Leer batteryLevel (1 byte - tipo `uint8_t`)
     batteryLevel = (uint8_t)receivedData[offset];
     offset += sizeof(uint8_t);
     uint8_t checkSumVerificated = xorChecksum(receivedData, sizeof(receivedData));
@@ -157,16 +140,12 @@ void handleLoRaData(int packetSize) {
       leftEncoderTicksAnt = leftEncoderTicks;
       batteryLevelAnt = batteryLevel;
     } else {
-      //Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
       leftEncoderTicks = leftEncoderTicksAnt;
       batteryLevel = batteryLevelAnt;
-      //Serial.println("no coinciden");
-      //Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
     }
     Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
-    //Serial.println(String(receivedData[offset]) + "," + String(checkSumVerificated));
 
-  } else if (indexQuestion == 3){
+  //} else if (indexQuestion == 3){
      // Responder al comando recibido
     //int bufferSize = 1 + runCommand.length(); // 1 byte de confirmación + longitud del string
     //uint8_t buffer[bufferSize]; // Buffer de tamaño variable
@@ -177,6 +156,7 @@ void handleLoRaData(int packetSize) {
     // Enviar el buffer completo
     //LoRa.write(buffer, bufferSize);
     //LoRa.endPacket();
+  //}
   }
 }
 // Manejo de datos del Serial
@@ -201,5 +181,4 @@ uint8_t xorChecksum(uint8_t* buffer, int len){
   }
   return sum;
 }
-
 
