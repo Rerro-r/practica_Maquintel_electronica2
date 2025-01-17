@@ -122,7 +122,6 @@ void handleLoRaData(int packetSize) {
     buffer[1 + sizeof(runCommandInit)] = encoderType; // Copia el tipo de encoder
     memcpy(buffer + 1 + sizeof(runCommandInit) + sizeof(encoderType), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
     LoRa.beginPacket();
-    Serial.println(bufferSize);
     // Enviar el buffer completo
     LoRa.write(buffer, bufferSize);
     LoRa.endPacket();

@@ -104,14 +104,15 @@ def desconectar():
     habilitar_botones(True, False, False)
     mensaje = "STOP"
     print(mensaje)
+    if data_thread and data_thread.is_alive(): #esperar a que el hilo termine
+        Estado = 0
+        data_thread.join(timeout=0.1) # esperar que el hilo termine
+        print("Hilo de procesamiento detenido.")
     if puertoSerial_c != None:
         puertoSerial_c.write(mensaje.encode('utf-8'))
         cerrar_puerto(puertoSerial_c, "C") # Cerrar el puerto serial
-        puertoSerial_c = None #importante setear a none para que se pueda volver a abrir
-    if data_thread and data_thread.is_alive(): #esperar a que el hilo termine
-        Estado = 0
-        data_thread.join(timeout=1) # esperar que el hilo termine
-        print("Hilo de procesamiento detenido.")
+        puertoSerial_c = None # importante setear a none para que se pueda volver a abrir
+
 
 def reset():
     global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante, Distancia_str, reset_activado
@@ -262,58 +263,59 @@ def data_processing_loop():
                 ace, giro, mag = procesar_imu(imu_data)
             else:
                 ace = giro = mag = ""
-            
-        if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
-            try:
-                Tics_bytes = puertoSerial_c.read_until(b'\r\n')
-                if not Estado:
-                    break
-
-                # Decodificación y conversión a entero directamente:
+        if Estado:    
+            if puertoSerial_c.in_waiting > 0:  # Verifica si hay datos disponibles
                 try:
-                    data = Tics_bytes.decode().strip()
-                    Ti_int, Bat_int = map(int, data.split(','))
-                    Ti_int = -1 * Ti_int #Decodifica, quita espacios y convierte a entero
-                except ValueError: #Manejo de error si no se puede convertir a entero
-                    print(f"Error al convertir a entero: {Tics_bytes}")
-                    continue #Continua a la siguiente iteracion
-                if Ti_int != ticks_anteriores:
-                    if abs(Ti_int - ti_ant) >= 50000:
-                        print(Ti_int)
-                        if reset_activado == False:
-                            Ti_int = ti_ant
+                    Tics_bytes = puertoSerial_c.read_until(b'\r\n')
+                    if not Estado:
+                        break
+
+                    # Decodificación y conversión a entero directamente:
+                    try:
+                        data = Tics_bytes.decode().strip()
+                        Ti_int, Bat_int = map(int, data.split(','))
+                        Ti_int = -1 * Ti_int #Decodifica, quita espacios y convierte a entero
+                    except ValueError: #Manejo de error si no se puede convertir a entero
+                        print(f"Error al convertir a entero: {Tics_bytes}")
+                        continue #Continua a la siguiente iteracion
+                    if Ti_int != ticks_anteriores:
+                        if abs(Ti_int - ti_ant) >= 50000:
+                            print(Ti_int)
+                            if reset_activado == False:
+                                Ti_int = ti_ant
+                            else:
+                                reset_activado = False
+                        diferencial = ti_ant - Ti_int
+                        ti_ant = Ti_int
+                        Ticks -= diferencial
+
+                        Distancia = round(Ticks * constante, 2)
+                        if Distancia != distancia_anterior:
+                            Distancia_str = f"{Distancia:+08.2f}"
+                            distancia_anterior = Distancia #Actualizar la distancia anterior
+                            ticks_anteriores = Ti_int #Actualizar los ticks anteriores
+                            data_queue.put(Distancia_str) 
+                        if Bat_int <= 10:
+                            mensaje_error.config(text="Advertencia: Queda poca batería")
                         else:
-                            reset_activado = False
-                    diferencial = ti_ant - Ti_int
-                    ti_ant = Ti_int
-                    Ticks -= diferencial
+                            mensaje_error.config(text="")
 
-                    Distancia = round(Ticks * constante, 2)
-                    if Distancia != distancia_anterior:
-                        Distancia_str = f"{Distancia:+08.2f}"
-                        distancia_anterior = Distancia #Actualizar la distancia anterior
-                        ticks_anteriores = Ti_int #Actualizar los ticks anteriores
-                        data_queue.put(Distancia_str) 
-                    if Bat_int <= 10:
-                        mensaje_error.config(text="Advertencia: Queda poca batería")
-                    else:
-                        mensaje_error.config(text="")
-
-                    if Bat_int != bat_int_anterior:
-                        Bat_str = f"{Bat_int}"
-                        bat_int_anterior = Bat_int
-                        data2_queue.put(Bat_str)
-                  
-                else:
-                    Distancia_str = f"{distancia_anterior:+08.2f}"
-                    Bat_str = f"{bat_int_anterior}"
-                
+                        if Bat_int != bat_int_anterior:
+                            Bat_str = f"{Bat_int}"
+                            bat_int_anterior = Bat_int
+                            data2_queue.put(Bat_str)
                     
+                    else:
+                        Distancia_str = f"{distancia_anterior:+08.2f}"
+                        Bat_str = f"{bat_int_anterior}"
+                    
+                        
 
-            except UnicodeDecodeError:
-                print("Error de decodificación, ignorando los datos corruptos.")
-                continue
-
+                except UnicodeDecodeError:
+                    print("Error de decodificación, ignorando los datos corruptos.")
+                    continue
+        else:
+            break
         
         tiempo_actual = time.perf_counter()
         if tiempo_actual - tiempo_anterior_escritura >= 1/31:
