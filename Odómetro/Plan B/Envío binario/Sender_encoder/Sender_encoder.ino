@@ -91,6 +91,7 @@ void setup() {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
+  LoRa.setFrequency(902000000); // Configura a 902 MHz
   //LoRa.onTxDone(onTxDone);
   //#########################################################
   //############# Petición y espera de datos de encoder ######

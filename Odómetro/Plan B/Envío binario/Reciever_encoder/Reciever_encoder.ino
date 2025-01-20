@@ -36,11 +36,11 @@ void setup() {
   Serial.println("LoRa Receiver Optimized");
   SPI.begin(SCK, MISO, MOSI, SS);
   LoRa.setPins(SS, RST, DI0);
-  //LoRa.setSignalBandwidth(500E3);
   if (!LoRa.begin(BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
+  LoRa.setFrequency(902000000); // Configura a 902 MHz
 
   LoRa.receive();
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
