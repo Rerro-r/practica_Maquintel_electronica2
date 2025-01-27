@@ -35,7 +35,8 @@ CONSTANTES_ODOMETRO = {
 
 current_file_path = os.path.abspath(__file__)
 current_folder = os.path.dirname(current_file_path)
-logo_path = os.path.join(current_folder, "Logos_Maquintel", "Logos_Maquintel.png")
+#logo_path = os.path.join(current_folder, "Logos_Maquintel.png")
+logo_path = "C:\\Users\\Renate\\practica_Maquintel_electronica2\\Odómetro\\Plan_B\\Envío_binario\\Codigo_Odometria\\Logos_Maquintel.png"
 
 def puertos_seriales():
     ports = [f"COM{i + 1}" for i in range(24)]
@@ -100,6 +101,7 @@ def desconectar():
     Estado = 0
     envio_encoder = True
     habilitar_botones(True, False, False)
+    input_ratio.config(state="normal" if odometro_lista.get() == "Personalizado" else "disabled")
     mensaje = "STOP"
     if data_thread and data_thread.is_alive():
         Estado = 0
@@ -114,7 +116,7 @@ def desconectar():
 
 def reset():
     global Estado_reset, begin_reset, puertoSerial_c, Ticks, constante, Distancia_str, reset_activado
-    mensaje_error.config(text="")
+    mensaje_error.config(text="", state="normal")
     if Estado == 1:
         try:
             reset_activado = True
@@ -183,7 +185,7 @@ def conexion():
                 envio_encoder = True
                 constante = encoder_ratio * 3.1416 / 1024
             except ValueError:
-                mensaje_error.config(text="Error: El valor ingresado no es válido. Ingrese un número válido. Ejemplo: 0.05. Use punto para los decimales")
+                mensaje_error.config(text="Error: El valor ingresado no es válido. Ejemplo: 0.05. Use punto para los decimales")
 
         texto_error = mensaje_error.cget("text")
         if texto_error != "" and texto_error != "Advertencia: Queda poca batería":
@@ -451,7 +453,7 @@ selec_imu = tk.IntVar()
 check = tk.Checkbutton(ventana, variable=selec_imu, onvalue=1, offvalue=0, bg="dark orange", activebackground="dark orange", text='IMU')
 check.place(x=5, y=115)
 
-mensaje_error = tk.Label(ventana, text="Rellene los parámetros de configuración", bg="white", fg="red", font=("Helvetica", 10))
+mensaje_error = tk.Label(ventana, text="", bg="white", fg="red", font=("Helvetica", 10))
 mensaje_error.place(x=5, y=229)
 
 mensaje_error2 = tk.Label(ventana, text="", bg="white", fg="red", font=("Helvetica", 10))
