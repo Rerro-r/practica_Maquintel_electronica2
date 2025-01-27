@@ -35,8 +35,8 @@ CONSTANTES_ODOMETRO = {
 
 current_file_path = os.path.abspath(__file__)
 current_folder = os.path.dirname(current_file_path)
-#logo_path = os.path.join(current_folder, "Logos_Maquintel.png")
-logo_path = "C:\\Users\\Renate\\practica_Maquintel_electronica2\\Odómetro\\Plan_B\\Envío_binario\\Codigo_Odometria\\Logos_Maquintel.png"
+logo_path = os.path.join(current_folder, "Logos_Maquintel.png")
+#logo_path = "C:\\Users\\Renate\\practica_Maquintel_electronica2\\Odómetro\\Plan_B\\Envío_binario\\Codigo_Odometria\\Logos_Maquintel.png"
 
 def puertos_seriales():
     ports = [f"COM{i + 1}" for i in range(24)]
