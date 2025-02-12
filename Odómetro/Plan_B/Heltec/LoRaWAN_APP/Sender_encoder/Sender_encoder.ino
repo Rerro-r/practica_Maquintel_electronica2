@@ -107,7 +107,7 @@ void setup() {
   display.setFont(ArialMT_Plain_16);
   Serial.println("OLED configurado");
   display.clear();
-
+/*
 unsigned long startMillis = 0;
 bool waitingPeriod = false;
 
@@ -172,6 +172,8 @@ while (!rxDone) {  // Mientras rxDone sea falso, seguimos ejecutando
  
   Serial.println("Paquete recibido.");
 
+*/
+
   //########################## ENCODER ###############################
   pinMode(c_LeftEncoderPinA, INPUT_PULLUP); // sets pin A as input with pull-up
   pinMode(c_LeftEncoderPinB, INPUT_PULLUP); // sets pin B as input with pull-up
@@ -182,6 +184,28 @@ while (!rxDone) {  // Mientras rxDone sea falso, seguimos ejecutando
 
 void loop(){
   unsigned long currentMillis = millis();
+
+  if (!rxDone){
+    uint8_t requestData[1] = {1}; 
+    Radio.Send(requestData, 1);
+    while (!txDone){
+    Radio.IrqProcess();
+    }
+    txDone = false;
+
+    if (lora_idle) {
+        lora_idle = false;
+        Serial.println("esperando respuesta");
+        Radio.Rx(0);
+    }
+    
+   //while (true){
+   Radio.IrqProcess();
+  // if(rxDone){
+    //break;
+   //}//}
+    //delay(20);
+  } else {
 
   // Actualizar la pantalla OLED cada 1.5 segundos
   if (currentMillis - lastDisplayUpdate >= 1500) {
@@ -202,8 +226,8 @@ void loop(){
       lastLoRaPacketSent = currentMillis;
     }
 	}
-  Radio.IrqProcess();
 }
+  Radio.IrqProcess();}
 
 void sendLoRaPacket(){
   uint8_t buffer[7] = {0}; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
