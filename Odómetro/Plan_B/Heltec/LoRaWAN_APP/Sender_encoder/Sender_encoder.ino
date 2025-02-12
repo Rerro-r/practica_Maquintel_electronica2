@@ -73,7 +73,7 @@ unsigned long previousMillis = 0;
 int batteryLevel = 0;  // Almacenará el nivel de batería
 unsigned long timeBetweenPackets = 0;  // Tiempo entre el último y el actual envío de paquete
 char receivedData[256] = {0};
-int encoderType = 1; // 2 bytes
+int encoderType = 0; // 2 bytes
 float encoderRatio = 0.0; // medido en metros 4 bytes
 String runCommandInit = "";
 bool txDone = false;
@@ -108,31 +108,68 @@ void setup() {
   Serial.println("OLED configurado");
   display.clear();
 
-  while (rxDone == false) {
-    unsigned long currentMillis = millis();
+unsigned long startMillis = 0;
+bool waitingPeriod = false;
 
-    // Verificar si ha pasado el tiempo de intervalo
-   // if (currentMillis - previousMillis >= 500) {
-     // previousMillis = currentMillis;
+while (!rxDone) {  // Mientras rxDone sea falso, seguimos ejecutando
+  unsigned long currentMillis = millis();
+
+  // Si no estamos en espera, ejecutamos el loop por 3 segundos
+  if (!waitingPeriod) {
+    if (startMillis == 0) {
+      startMillis = currentMillis;
+    }
+
+    if (currentMillis - startMillis < 3000) { // Ejecutar por 3 segundos
+      // Verificamos si la condición original sigue siendo válida
+      if (rxDone) break;  // Salimos del while si rxDone cambia
+
+      // Envío constante durante los 3 segundos
       uint8_t requestData[1] = {1}; 
       Radio.Send(requestData, 1);
       Radio.IrqProcess();
-      delay(200);
-      if(lora_idle){
+     // delay(100);
+      //Serial.println("Encoder pedido");
+
+    } else {
+      waitingPeriod = true;  // Pasamos a la fase de espera
+      startMillis = millis(); // Reiniciamos el temporizador
+        // if (lora_idle) {
+          //lora_idle = false;
+          //Radio.Rx(0);
+          //Serial.println("Modo recepción activo");
+      //Radio.IrqProcess();
+     //   }
+    }
+  } 
+
+  // Fase de espera de 3 segundos antes de volver a ejecutar
+  else if (currentMillis - startMillis < 2000) {
+          if (lora_idle) {
         lora_idle = false;
         Radio.Rx(0);
-        delay(200);
+
         Serial.println("modo recepción");
       }
-    //  if (txDone == true) {
-     // Serial.println("Esperando paquete...");
-      //txDone = false;
-      //}
-      Serial.println("Encoder pedido");
-   // }
-  }
+    //waitingPeriod = false;  // Volvemos a ejecutar el loop
+    //startMillis = 0;
+    Serial.println("esperando respuesta");
+      Radio.IrqProcess();
+      //Radio.IrqProcess();
+      //delay(20); // Pequeña pausa para no saturar el sistema
+
+    // Si la condición ha cambiado, salir del while
+    if (rxDone) break;
+  }     else {
+      waitingPeriod = false; // Volver a la fase de transmisión
+      startMillis = 0;
+      Serial.println("Regresando a transmisión...");
+    }
+}
 
 
+
+ 
   Serial.println("Paquete recibido.");
 
   //########################## ENCODER ###############################

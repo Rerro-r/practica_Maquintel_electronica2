@@ -1,42 +1,36 @@
 #include <SPI.h>
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include <Arduino.h>
-#include <LoRa.h>
+#include <LoRa.h>               
+#include "HT_SSD1306Wire.h"
+#include "LoRaWan_APP.h"
 //#include <mySD.h>
 
 //ext::File myFile;
 //########################### LORA ##############################
-#define SCK     5    // GPIO5  -- SCK
-#define MISO    19   // GPIO19 -- MISO
-#define MOSI    27   // GPIO27 -- MOSI
-#define SS      18   // GPIO18 -- CS
-#define RST     23  // GPIO14 -- RESET (If Lora does not work, replace it with GPIO14)
-#define DI0     26   // GPIO26 -- IRQ(Interrupt Request)
+#define SCK     9    // GPIO5  -- SCK
+#define MISO    11   // GPIO19 -- MISO
+#define MOSI    10   // GPIO27 -- MOSI
+#define SS      8   // GPIO18 -- CS
+#define RST     12  // GPIO14 -- RESET (If Lora does not work, replace it with GPIO14)
+#define DI0     14   // GPIO26 -- IRQ(Interrupt Request)
 #define BAND    868E6
 String rssi = "RSSI --";
 String packSize = "--";
 String packet ;
 //volatile bool transmissionFinished = true; // Variable volátil para la interrupción
 //#########################################################
-//########################### OLED ##############################
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 32 // OLED display height, in pixels
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-//#########################################################
+
 //########################## Encoder ###############################
-#define c_LeftEncoderPinA 34
-#define c_LeftEncoderPinB 35  
+#define c_LeftEncoderPinA 6
+#define c_LeftEncoderPinB 7  
 #define LeftEncoderIsReversed
 volatile bool _LeftEncoderBSet;
 long _LeftEncoderTicks = 0;
 //#########################################################
 //########################## Voltaje ###############################
 // Definir el pin ADC que se utilizará
-const int batteryPin = 39; // Utiliza un pin ADC como GPIO
+const int batteryPin = 2; // Utiliza un pin ADC como GPIO
 // Constantes para el cálculo del voltaje
 const float adcResolution = 4095.0;
 const float referenceVoltage = 3.3;
@@ -58,6 +52,8 @@ const int numReadings = 10;
 
 //#########################################################
 */
+static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED); // addr , freq , i2c group , resolution , rst
+
 //########################## Variables #############################
 unsigned long lastDisplayUpdate = 0;  // Tiempo del último update de pantalla
 unsigned long lastBatteryUpdate = 0;  // Tiempo del último cálculo de batería
@@ -75,12 +71,13 @@ String runCommandInit = "";
 //#########################################################
 void setup() {
   Serial.begin(115200);
+  Mcu.begin(HELTEC_BOARD,SLOW_CLK_TPYE);
   //########################## OLED ###############################
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;);
-  }
-  display.clearDisplay();
+  VextON();
+  display.init();
+  display.setFont(ArialMT_Plain_16);
+  Serial.println("OLED configurado");
+  display.clear();
   //########################### LORA ##############################
   while (!Serial);
   Serial.println();
@@ -229,20 +226,18 @@ void updateOLED() {
     if (batteryLevel > 10){
     char displayBuffer[70]; // Ajusta el tamaño si necesitas más espacio
     snprintf(displayBuffer, sizeof(displayBuffer), "Bat: %d%%\nT: %ld\nDist: %f", batteryLevel, _LeftEncoderTicks, distancia);
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 8); // Ajusta la posición vertical si es necesario
-    display.print(displayBuffer); // Imprime la cadena formateada
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 0, displayBuffer); // Imprime la cadena formateada
     display.display();
   } else {
     char displayBuffer[70]; // Ajusta el tamaño si necesitas más espacio
     snprintf(displayBuffer, sizeof(displayBuffer), "Bateria baja! %d%%\nT: %ld\nDist: %f", batteryLevel, _LeftEncoderTicks, distancia);
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 8); // Ajusta la posición vertical si es necesario
-    display.print(displayBuffer); // Imprime la cadena formateada
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(0, 0, displayBuffer); // Imprime la cadena formateada
     display.display();
   }
 }
@@ -332,6 +327,18 @@ float Distance() {
       distanciaRecorrida = round(((int(_LeftEncoderTicks) * encoderRatio * 3.1416) / 1024) * 1 * 100.0) / 100.0;
   } 
   return -1 * distanciaRecorrida;
+}
+
+void VextON(void)
+{
+  pinMode(Vext,OUTPUT);
+  digitalWrite(Vext, LOW);
+}
+
+void VextOFF(void) //Vext default OFF
+{
+  pinMode(Vext,OUTPUT);
+  digitalWrite(Vext, HIGH);
 }
 
 /*

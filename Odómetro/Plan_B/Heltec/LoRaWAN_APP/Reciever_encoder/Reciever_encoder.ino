@@ -141,7 +141,7 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
   indexQuestion = receivedData[0];  // Determinar tipo de pregunta
 
   if (indexQuestion == 1) {
-    delay(200);
+    //delay(490);
     // Enviar configuración del encoder en binario por LoRa
     int bufferSize = 1 + sizeof(runCommandInit) + sizeof(encoderType) + sizeof(encoderRatio);
     uint8_t buffer[bufferSize]; // Buffer de tamaño variable
