@@ -1,20 +1,3 @@
-/* Heltec Automation Ping Pong communication test example
- *
- * Function:
- * 1. Ping Pong communication in two esp32 device.
- * 
- * Description:
- * 1. Only hardware layer communicate, no LoRaWAN protocol support;
- * 2. Download the same code into two esp32 devices, then they will begin Ping Pong test each other;
- * 3. This example is for esp32 hardware basic test.
- *
- * HelTec AutoMation, Chengdu, China
- * 成都惠利特自动化科技有限公司
- * www.heltec.org
- *
- * this project also realess in GitHub:
- * https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series
- * */
 
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
@@ -23,9 +6,9 @@
 
 
 
-#define RF_FREQUENCY                                90200000 // Hz
+#define RF_FREQUENCY                                902000000 // Hz
 
-#define TX_OUTPUT_POWER                             17        // dBm
+#define TX_OUTPUT_POWER                             22        // dBm
 
 #define LORA_BANDWIDTH                              0         // [0: 125 kHz,
                                                               //  1: 250 kHz,
@@ -42,8 +25,8 @@
 #define LORA_IQ_INVERSION_ON                        false
 
 
-#define RX_TIMEOUT_VALUE                            1000
-#define BUFFER_SIZE                                 30 // Define the payload size here
+#define RX_TIMEOUT_VALUE                            200
+#define BUFFER_SIZE                                 13 // Define the payload size here
 
 
 static RadioEvents_t RadioEvents;

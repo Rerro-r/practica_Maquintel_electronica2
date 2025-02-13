@@ -6,9 +6,9 @@
 
 
 
-#define RF_FREQUENCY                                90200000 // Hz
+#define RF_FREQUENCY                                902000000 // Hz
 
-#define TX_OUTPUT_POWER                             17        // dBm
+#define TX_OUTPUT_POWER                             22        // dBm
 
 #define LORA_BANDWIDTH                              0         // [0: 125 kHz,
                                                               //  1: 250 kHz,
@@ -25,8 +25,8 @@
 #define LORA_IQ_INVERSION_ON                        false
 
 
-#define RX_TIMEOUT_VALUE                            1000
-#define BUFFER_SIZE                                 30 // Define the payload size here
+#define RX_TIMEOUT_VALUE                            200
+#define BUFFER_SIZE                                 13 // Define the payload size here
 
 
 static RadioEvents_t RadioEvents;
@@ -41,10 +41,10 @@ typedef enum
     STATE_TX
 }States_t;
 
-bool lora_idle = true;
-States_t state;
-bool sleepMode = false;
-int16_t Rssi,rxSize;
+volatile bool lora_idle = true;
+volatile States_t state;
+volatile bool sleepMode = false;
+volatile int16_t Rssi,rxSize;
 
 /////////////////// OLED /////////////////////////////////////////
 
@@ -142,15 +142,18 @@ void setup() {
 void loop()
 {
   //Serial.println(recepciona);
+      unsigned long inicio = 0;
+      unsigned long finall = 0;
   uint8_t requestData[1] = {1};
   currentMillis = millis();
-  if(infoRecibida == true){
+  //Serial.println(currentMillis);
+  if(infoRecibida){
         if (currentMillis - lastDisplayUpdate >= 1500) {
         updateOLED();
         lastDisplayUpdate = currentMillis;
       }
       // Actualizar el nivel de batería cada 30 segundos
-      if (currentMillis - lastBatteryUpdate >= 5000) {
+      if (currentMillis - lastBatteryUpdate >= 20000) {
         batteryLevel = getBatteryLevel();
         lastBatteryUpdate = currentMillis;
       }}
@@ -160,7 +163,7 @@ void loop()
   
     case STATE_TX:
      // delay(10);
-      if(infoRecibida == false){
+      if(!infoRecibida){
      // Serial.println((int)requestData[0]);
       Radio.Send(requestData, 1);
      // Serial.println("TX AAAAA");
@@ -168,8 +171,14 @@ void loop()
       recepciona = false;
       state = LOWPOWER;}
       else{
+        
+    // if(currentMillis - lastLoRaPacketSent >= 33){
+     // Serial.println("Tiempo pasado:");
+     // delay(1000);
+        Serial.println(currentMillis - lastLoRaPacketSent);
+        lastLoRaPacketSent = currentMillis;
         sendLoRaPacket();
-      }
+      }//}
       //lowPowerStartTime = millis(); // Guardar tiempo de inicio de LOWPOWER
       break;
 
@@ -182,14 +191,19 @@ void loop()
 
     case LOWPOWER:
       //Serial.println("lowpower");
+      //inicio = millis();
       Radio.IrqProcess();
+      //finall = millis();
+     // Serial.println(inicio - finall);
       if (!recepciona){
+      //Radio.IrqProcess();
       rxStartTime = millis();
-      recepciona = true;
+      recepciona = true;}
       //Serial.println("hago millis");
-      }
-      if (millis() - rxStartTime > 100) {
-        //Serial.println("RX timeout, volviendo a TX");
+     // }else{
+      if (millis() - rxStartTime >= 80){
+        rxStartTime = millis();
+        Serial.println("RX timeout, volviendo a TX");
         state = STATE_TX;}
       
       break;
@@ -220,7 +234,7 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
     rxSize=size;
   //Serial.println("recibí algo");
   //rxDone = true;
-  Radio.Sleep();
+  //Radio.Sleep();
   // Leer el paquete recibido en un buffer binario
   // 1 byte confirmación + 4 bytes command + 4 bytes int + 4 bytes float
   uint8_t bufferInit[13]; // Buffer para almacenar los datos recibidos
@@ -253,6 +267,9 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 }
 
 void sendLoRaPacket(){
+  unsigned long inicio1 = 0;
+  unsigned long finall1 = 0;
+  inicio1 = millis();
   uint8_t buffer[7] = {0}; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
   uint8_t bat8 = (uint8_t)batteryLevel;
   buffer[0] = 2;
@@ -262,9 +279,8 @@ void sendLoRaPacket(){
   buffer[6] = xorChecksum(buffer, sizeof(buffer)); 
   // Enviar los bytes directamente
   Radio.Send(buffer, sizeof(buffer));
-  Serial.println("Tiempo pasado:");
-        Serial.println(currentMillis - lastLoRaPacketSent);
-        lastLoRaPacketSent = currentMillis;
+  finall1 = millis();
+  Serial.println(finall1 - inicio1);
   state = LOWPOWER;
 }
 
