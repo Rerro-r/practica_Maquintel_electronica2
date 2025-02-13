@@ -1,3 +1,20 @@
+/* Heltec Automation Ping Pong communication test example
+ *
+ * Function:
+ * 1. Ping Pong communication in two esp32 device.
+ * 
+ * Description:
+ * 1. Only hardware layer communicate, no LoRaWAN protocol support;
+ * 2. Download the same code into two esp32 devices, then they will begin Ping Pong test each other;
+ * 3. This example is for esp32 hardware basic test.
+ *
+ * HelTec AutoMation, Chengdu, China
+ * 成都惠利特自动化科技有限公司
+ * www.heltec.org
+ *
+ * this project also realess in GitHub:
+ * https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series
+ * */
 
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
@@ -5,10 +22,11 @@
 #include "HT_SSD1306Wire.h"
 
 
-/////////////////////// LoRa //////////////////////////////////////////
 
-#define RF_FREQUENCY                                902000000 // Hz
+#define RF_FREQUENCY                                90200000 // Hz
+
 #define TX_OUTPUT_POWER                             17        // dBm
+
 #define LORA_BANDWIDTH                              0         // [0: 125 kHz,
                                                               //  1: 250 kHz,
                                                               //  2: 500 kHz,
@@ -22,17 +40,28 @@
 #define LORA_SYMBOL_TIMEOUT                         0         // Symbols
 #define LORA_FIX_LENGTH_PAYLOAD_ON                  false
 #define LORA_IQ_INVERSION_ON                        false
+
+
 #define RX_TIMEOUT_VALUE                            1000
 #define BUFFER_SIZE                                 30 // Define the payload size here
 
-static RadioEvents_t RadioEvents;
-void OnTxDone(void);
-void OnTxTimeout(void);
-void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr );
 
-int16_t rssi,rxSize;
+static RadioEvents_t RadioEvents;
+void OnTxDone( void );
+void OnTxTimeout( void );
+void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr );
+
+typedef enum
+{
+    LOWPOWER,
+    STATE_RX,
+    STATE_TX
+}States_t;
 
 bool lora_idle = true;
+States_t state;
+bool sleepMode = false;
+int16_t Rssi,rxSize;
 
 /////////////////// OLED /////////////////////////////////////////
 
@@ -51,28 +80,33 @@ uint8_t batteryLevel = 0;
 uint8_t batteryLevelAnt = 0;
 long leftEncoderTicks = 0;
 long leftEncoderTicksAnt = 0;
-float encoderRatio = 0.0;
-int encoderType = 0;
+float encoderRatio = 2.0;
+int encoderType = 1;
 char runCommandInit[4] = {0};
 char runCommand[5] = {0};
 
 
 void setup() {
-  Serial.begin(115200);
-  Mcu.begin(HELTEC_BOARD,SLOW_CLK_TPYE);
-  
-  rssi=0;
+    Serial.begin(115200);
+    Mcu.begin(HELTEC_BOARD,SLOW_CLK_TPYE);
+    Rssi=0;
 
-  RadioEvents.RxDone = OnRxDone;
-  RadioEvents.TxTimeout = OnTxTimeout;
-  RadioEvents.TxDone = OnTxDone;
+    RadioEvents.TxDone = OnTxDone;
+    RadioEvents.TxTimeout = OnTxTimeout;
+    RadioEvents.RxDone = OnRxDone;
 
-  Radio.Init( &RadioEvents );
-  Radio.SetChannel( RF_FREQUENCY );
-  Radio.SetRxConfig( MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
-                              LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH,
-                              LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON,
-                              0, true, 0, 0, LORA_IQ_INVERSION_ON, true );
+    Radio.Init( &RadioEvents );
+    Radio.SetChannel( RF_FREQUENCY );
+    Radio.SetTxConfig( MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
+                                   LORA_SPREADING_FACTOR, LORA_CODINGRATE,
+                                   LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
+                                   true, 0, 0, LORA_IQ_INVERSION_ON, 3000 );
+
+    Radio.SetRxConfig( MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
+                                   LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH,
+                                   LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON,
+                                   0, true, 0, 0, LORA_IQ_INVERSION_ON, true );
+    state=STATE_RX;
 
   if(Radio.GetStatus()){
     Serial.println("Configuración LoRa establecida");
@@ -120,76 +154,76 @@ void setup() {
   display.drawString(0, 20, run_odometro_radio);
   delay(1000); // Mostrar los resultados durante 1 segundos
   display.display();
+
 }
 
 
 
-void loop(){
-
-  currentMillis = millis();  // Obtener tiempo actual
-
-  if(lora_idle){
-    lora_idle = false;
-    Radio.Rx(0);
+void loop()
+{
+ // uint8_t requestData[1] = {1};
+  switch(state)
+  {
+    case STATE_TX:
+    //  delay(10);
+      //Serial.println((int)requestData[0]);
+      {int bufferSize = 1 + sizeof(runCommandInit) + sizeof(encoderType) + sizeof(encoderRatio);
+      uint8_t buffer[bufferSize]; // Buffer de tamaño variable
+      // Construir el paquete en el buffer
+      buffer[0] = 1; // Confirmación de recepción (como uint8_t)
+      memcpy(buffer + 1, &runCommandInit, sizeof(runCommandInit)); // Copia el string
+      memcpy(buffer + 1 + sizeof(runCommandInit), &encoderType, sizeof(encoderType));
+  // Copia el tipo de encoder
+      memcpy(buffer + 1 + sizeof(runCommandInit) + sizeof(encoderType), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
+      Radio.Send(buffer, sizeof(buffer));}
+    //  Serial.println("TX");
+      state=LOWPOWER;
+      break;
+    case STATE_RX:
+     // delay(10);
+    //  Serial.println("into RX mode");
+      Radio.Rx( 0 );
+      state=LOWPOWER;
+      break;
+    case LOWPOWER:
+      Radio.IrqProcess( );
+      break;
+    default:
+      break;
   }
-  Radio.IrqProcess( );
+}
 
+void OnTxDone( void )
+{
+ // Serial.println("TX done......");
+  state=STATE_RX;
+}
+
+void OnTxTimeout( void )
+{
+    //Radio.Sleep( );
+   // Serial.println("TX Timeout......");
+    state=STATE_TX;
 }
 
 void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 {
-  rssi=rssi;
-  rxSize=size;
+    unsigned long currentMillis = millis();
+    unsigned long elapsedMillis = currentMillis - previousMillis;
+    previousMillis = currentMillis;
+    Serial.println(elapsedMillis);
+    Rssi=rssi;
+    rxSize=size;
   memcpy(receivedData, payload, sizeof(receivedData));
   int indexQuestion = 0;
-  indexQuestion = receivedData[0];  // Determinar tipo de pregunta
+  indexQuestion = receivedData[0];  
+   // Radio.Sleep( );
 
-  if (indexQuestion == 1) {
-    delay(10);
-    // Enviar configuración del encoder en binario por LoRa
-    int bufferSize = 1 + sizeof(runCommandInit) + sizeof(encoderType) + sizeof(encoderRatio);
-    uint8_t buffer[bufferSize]; // Buffer de tamaño variable
-    // Construir el paquete en el buffer
-    buffer[0] = 1; // Confirmación de recepción (como uint8_t)
-    memcpy(buffer + 1, &runCommandInit, sizeof(runCommandInit)); // Copia el string
-    memcpy(buffer + 1 + sizeof(runCommandInit), &encoderType, sizeof(encoderType));
- // Copia el tipo de encoder
-    memcpy(buffer + 1 + sizeof(runCommandInit) + sizeof(encoderType), &encoderRatio, sizeof(encoderRatio)); // Copia el ratio del encoder
-    Radio.Send(buffer, sizeof(buffer));
-  /*  Serial.println(encoderType);
-    Serial.println(encoderRatio);
-    Serial.println(String(runCommandInit));
-    uint8_t bufferInit[13]; 
-    int i = 13;
-    int enc;
-    char run[4] ={0};
-    float ratio;
-
-  int offsetInit = 1;    // Cadena para el comando recibido
-  // Leer y procesar el comando
-  memcpy(bufferInit, buffer, sizeof(bufferInit));
-  memcpy(run, &bufferInit[offsetInit], sizeof(run));
-  offsetInit += sizeof(run);          // Avanzar el puntero
-  // Leer y procesar el tipo de encoder
-  if (offsetInit + sizeof(enc) <= i) {
-    memcpy(&enc, &bufferInit[offsetInit], sizeof(enc));
-    offsetInit += sizeof(enc);
-  }
-  // Leer y procesar el ratio del encoder
-  if (offsetInit + sizeof(ratio) <= i) {
-    memcpy(&ratio, &bufferInit[offsetInit], sizeof(ratio));
-    offsetInit += sizeof(ratio);
-  }
-  // Mostrar los valores procesados
-  Serial.println("Comando recibido: " + String(run));
-  Serial.println("Tipo de encoder recibido: " + String(enc));
-  Serial.println("Ratio del encoder recibido: " + String(ratio)); */
-
-    Serial.println("info enviada");
-
-  //Se decide hacer checksum del index y los ticks únicamente. Si el batteryLevel se envía mal no es problema 
-  } else if (indexQuestion == 2) {
-    int offset = 1;
+//Serial.println(indexQuestion);
+    if (indexQuestion == 1){
+    state=STATE_TX;}
+    else{
+      int offset = 1;
     memcpy(&leftEncoderTicks, &receivedData[offset], sizeof(leftEncoderTicks));
     offset += sizeof(leftEncoderTicks);
     // Leer batteryLevel (1 byte - tipo `uint8_t`)
@@ -204,21 +238,8 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
       batteryLevel = batteryLevelAnt;
     }
     Serial.println(String(leftEncoderTicks) + "," + String(batteryLevel));
-  }
-  //Serial.println("solicitud pedida");
-  Serial.println(currentMillis - timeRx);
-  timeRx = currentMillis;
-  lora_idle = true;
-}
-
-void OnTxDone( void )
-{
-  lora_idle = true;
-}
-
-void OnTxTimeout( void )
-{
-  lora_idle = true;
+    state=STATE_RX;
+    }
 }
 
 void VextON(void)
@@ -233,6 +254,14 @@ void VextOFF(void) //Vext default OFF
   digitalWrite(Vext, HIGH);
 }
 
+uint8_t xorChecksum(uint8_t* buffer, int len){
+  uint8_t sum = 0;
+  for (int i = 0; i < 5; i++) {
+      sum ^= buffer[i];
+  }
+  return sum;
+}
+
 void handleSerialData() {
   String data = Serial.readString();
   if (data.length() > 0) {
@@ -242,12 +271,4 @@ void handleSerialData() {
     display.drawString(0, 0, runCommand);
     display.display();
   }
-}
-
-uint8_t xorChecksum(uint8_t* buffer, int len){
-  uint8_t sum = 0;
-  for (int i = 0; i < 5; i++) {
-      sum ^= buffer[i];
-  }
-  return sum;
 }

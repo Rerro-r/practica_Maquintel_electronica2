@@ -31,6 +31,17 @@ void OnTxDone( void );
 void OnTxTimeout( void );
 void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr );
 
+typedef enum
+{
+    LOWPOWER,
+    STATE_RX,
+    STATE_TX1,
+    STATE_TX2
+}States_t;
+
+States_t state;
+bool sleepMode = false;
+
 ////////////////////////////// OLED ///////////////////////////////////
 
 static SSD1306Wire  display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED); // addr , freq , i2c group , resolution , rst
@@ -96,6 +107,11 @@ void setup() {
                                   LORA_SPREADING_FACTOR, LORA_CODINGRATE,
                                   LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
                                   true, 0, 0, LORA_IQ_INVERSION_ON, 3000 );
+  
+      Radio.SetRxConfig( MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
+                                   LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH,
+                                   LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON,
+                                   0, true, 0, 0, LORA_IQ_INVERSION_ON, true );
   
   if(Radio.GetStatus()){
   Serial.println("Configuración LoRa establecida");
@@ -178,56 +194,73 @@ while (!rxDone) {  // Mientras rxDone sea falso, seguimos ejecutando
   pinMode(c_LeftEncoderPinA, INPUT_PULLUP); // sets pin A as input with pull-up
   pinMode(c_LeftEncoderPinB, INPUT_PULLUP); // sets pin B as input with pull-up
   attachInterrupt(digitalPinToInterrupt(c_LeftEncoderPinA), HandleLeftMotorInterruptA, FALLING);
+
+  state=STATE_TX1;
 }
 
 
 
 void loop(){
   unsigned long currentMillis = millis();
+  uint8_t requestData[1] = {1};
+  switch(state)
+  {
+    case STATE_TX1:
+      Serial.println("TX1");
+      delay(100);
+      Radio.Send(requestData, 1);
+      state=LOWPOWER;
+      break;
 
-  if (!rxDone){
-    uint8_t requestData[1] = {1}; 
-    Radio.Send(requestData, 1);
-    while (!txDone){
-    Radio.IrqProcess();
-    }
-    txDone = false;
-
-    if (lora_idle) {
-        lora_idle = false;
-        Serial.println("esperando respuesta");
-        Radio.Rx(0);
-    }
+    case STATE_RX:
+      Serial.println("modo recepción");
+      Radio.Rx(0);
+      state = LOWPOWER;
+      break;
     
-   //while (true){
-   Radio.IrqProcess();
-  // if(rxDone){
-    //break;
-   //}//}
-    //delay(20);
-  } else {
+    case LOWPOWER:
+      Serial.println("lowpower");
+      Radio.IrqProcess();
+      //delay(50);
+      if (txDone){
+        txDone = false;
+        state = STATE_RX;
+      } else if (rxDone){
+        state = STATE_TX1;
+      } else if(!txDone){
+        state = STATE_TX1;
+      }
+      break;
+    
+    case STATE_TX2:
+      Serial.println("TX2");
 
-  // Actualizar la pantalla OLED cada 1.5 segundos
-  if (currentMillis - lastDisplayUpdate >= 1500) {
-    updateOLED();
-    lastDisplayUpdate = currentMillis;
-  }
-  // Actualizar el nivel de batería cada 30 segundos
-  if (currentMillis - lastBatteryUpdate >= 5000) {
-    batteryLevel = getBatteryLevel();
-    lastBatteryUpdate = currentMillis;
-  }
+      // Actualizar la pantalla OLED cada 1.5 segundos
+      if (currentMillis - lastDisplayUpdate >= 1500) {
+        updateOLED();
+        lastDisplayUpdate = currentMillis;
+      }
+      // Actualizar el nivel de batería cada 30 segundos
+      if (currentMillis - lastBatteryUpdate >= 5000) {
+        batteryLevel = getBatteryLevel();
+        lastBatteryUpdate = currentMillis;
+      }
 
-	if(lora_idle == true){
-    if(currentMillis - lastLoRaPacketSent >= 33){
-      sendLoRaPacket(); 
-      lora_idle = false;
-      Serial.println(currentMillis - lastLoRaPacketSent);
-      lastLoRaPacketSent = currentMillis;
-    }
-	}
+      if(lora_idle == true){
+        if(currentMillis - lastLoRaPacketSent >= 33){
+          sendLoRaPacket(); 
+          lora_idle = false;
+          Serial.println(currentMillis - lastLoRaPacketSent);
+          lastLoRaPacketSent = currentMillis;
+        }
+      }
+      state=LOWPOWER;
+      break;
+    default:
+      break;
+  }
 }
-  Radio.IrqProcess();}
+
 
 void sendLoRaPacket(){
   uint8_t buffer[7] = {0}; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
@@ -243,8 +276,14 @@ void sendLoRaPacket(){
 
 void OnTxDone( void )
 {
-	lora_idle = true;
   txDone = true;
+	lora_idle = true; 
+  if (encoderType != 0){
+    state=STATE_TX2;
+  }
+  if (encoderType == 0){
+    state=STATE_RX;
+  }
   Serial.println("enviado");
 }
 
@@ -258,6 +297,7 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 {
   Serial.println("recibí algo");
   rxDone = true;
+  Radio.Sleep();
   // Leer el paquete recibido en un buffer binario
   // 1 byte confirmación + 4 bytes command + 4 bytes int + 4 bytes float
   uint8_t bufferInit[13]; // Buffer para almacenar los datos recibidos
@@ -284,6 +324,7 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
   Serial.println("Tipo de encoder recibido: " + String(encoderType));
   Serial.println("Ratio del encoder recibido: " + String(encoderRatio));
   lora_idle = true;
+    state=STATE_TX2;
 }
 
 void updateOLED() {
