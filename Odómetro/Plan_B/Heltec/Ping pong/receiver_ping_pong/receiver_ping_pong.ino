@@ -191,10 +191,10 @@ void OnTxTimeout( void )
 
 void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 {
-    unsigned long currentMillis = millis();
-    unsigned long elapsedMillis = currentMillis - previousMillis;
-    previousMillis = currentMillis;
-    Serial.println(elapsedMillis);
+    //unsigned long currentMillis = millis();
+    //unsigned long elapsedMillis = currentMillis - previousMillis;
+    //previousMillis = currentMillis;
+   // Serial.println(elapsedMillis);
     Rssi=rssi;
     rxSize=size;
   memcpy(receivedData, payload, sizeof(receivedData));

@@ -172,13 +172,13 @@ void loop()
       state = LOWPOWER;}
       else{
         
-    // if(currentMillis - lastLoRaPacketSent >= 33){
+     if(currentMillis - lastLoRaPacketSent >= 33){
      // Serial.println("Tiempo pasado:");
      // delay(1000);
-        Serial.println(currentMillis - lastLoRaPacketSent);
+        //Serial.println(currentMillis - lastLoRaPacketSent);
         lastLoRaPacketSent = currentMillis;
         sendLoRaPacket();
-      }//}
+      }}
       //lowPowerStartTime = millis(); // Guardar tiempo de inicio de LOWPOWER
       break;
 
@@ -191,20 +191,25 @@ void loop()
 
     case LOWPOWER:
       //Serial.println("lowpower");
-      //inicio = millis();
+      if (!infoRecibida){
+      //inicio = millis();}
       Radio.IrqProcess();
+      //if (infoRecibida){
       //finall = millis();
-     // Serial.println(inicio - finall);
+      //Serial.println(inicio - finall);}
       if (!recepciona){
       //Radio.IrqProcess();
       rxStartTime = millis();
       recepciona = true;}
       //Serial.println("hago millis");
      // }else{
-      if (millis() - rxStartTime >= 50){
+      if (millis() - rxStartTime >= 100){
         rxStartTime = millis();
-        Serial.println("RX timeout, volviendo a TX");
+        //Serial.println("RX timeout, volviendo a TX");
         state = STATE_TX;}
+        } else{
+          Radio.IrqProcess();
+        }
       
       break;
 
@@ -217,7 +222,11 @@ void loop()
 void OnTxDone( void )
 {
  // Serial.println("TX done......");
+ if (!infoRecibida){
   state=STATE_RX;
+ }else{
+  state=STATE_TX;
+ }
 }
 
 void OnTxTimeout( void )
@@ -267,9 +276,9 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 }
 
 void sendLoRaPacket(){
-  unsigned long inicio1 = 0;
-  unsigned long finall1 = 0;
-  inicio1 = millis();
+ // unsigned long inicio1 = 0;
+  //unsigned long finall1 = 0;
+  //inicio1 = millis();
   uint8_t buffer[7] = {0}; // Tamaño total: 1 byte para el ID, 4 bytes para _LeftEncoderTicks, 1 bytes para batteryLevel y 1 byte para checksum
   uint8_t bat8 = (uint8_t)batteryLevel;
   buffer[0] = 2;
@@ -279,8 +288,8 @@ void sendLoRaPacket(){
   buffer[6] = xorChecksum(buffer, sizeof(buffer)); 
   // Enviar los bytes directamente
   Radio.Send(buffer, sizeof(buffer));
-  finall1 = millis();
-  Serial.println(finall1 - inicio1);
+ // finall1 = millis();
+  //Serial.println(finall1 - inicio1);
   state = LOWPOWER;
 }
 
