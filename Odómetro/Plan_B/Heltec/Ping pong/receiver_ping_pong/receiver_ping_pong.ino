@@ -14,7 +14,7 @@
                                                               //  1: 250 kHz,
                                                               //  2: 500 kHz,
                                                               //  3: Reserved]
-#define LORA_SPREADING_FACTOR                       7         // [SF7..SF12]
+#define LORA_SPREADING_FACTOR                       6         // [SF7..SF12]
 #define LORA_CODINGRATE                             1         // [1: 4/5,
                                                               //  2: 4/6,
                                                               //  3: 4/7,
@@ -25,7 +25,7 @@
 #define LORA_IQ_INVERSION_ON                        false
 
 
-#define RX_TIMEOUT_VALUE                            200
+#define RX_TIMEOUT_VALUE                            50
 #define BUFFER_SIZE                                 13 // Define the payload size here
 
 
